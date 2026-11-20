@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Axxlabs Limited
 """A real gateway on a free port, and a fake computer that speaks the tunnel protocol."""
 
 from __future__ import annotations

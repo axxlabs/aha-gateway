@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Axxlabs Limited
 """The computer's tunnel: handshake with mutual key authentication, then frames (SPEC §6.2, §6.3)."""
 
 from __future__ import annotations

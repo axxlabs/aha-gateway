@@ -70,6 +70,7 @@
   <span class="meta">Staging only. The gateway keeps nothing: this transcript lives in your browser.</span>
   <span class="status" id="status">connecting…</span>
   {% if viewer %}<span class="meta">Signed in as {{ viewer }}</span>{% endif %}
+  <a class="meta" href="{{ source_url }}" rel="noopener">Source (AGPL-3.0)</a>
 </header>
 <main>
   <div class="card">
@@ -97,7 +98,12 @@ const state = load();
 let source = null;
 
 function load() {
-  try { return JSON.parse(localStorage.getItem(STORE)) || { numbers: [], messages: {} }; }
+  try {
+    const s = JSON.parse(localStorage.getItem(STORE)) || { numbers: [], messages: {} };
+    // Older versions of this page stored "typing" events as empty messages; drop them.
+    for (const n in s.messages) s.messages[n] = s.messages[n].filter(m => m.html || m.image);
+    return s;
+  }
   catch (e) { return { numbers: [], messages: {} }; }
 }
 function save() { localStorage.setItem(STORE, JSON.stringify(state)); }
@@ -212,6 +218,7 @@ function connect() {
     const m = JSON.parse(ev.data);
     if (!state.numbers.includes(m.to)) return;
     if (m.type === "typing") { setTyping(m.to, m.on); return; }
+    if (m.type !== "message") return;
     setTyping(m.to, false);  // a reply clears the indicator, as in WhatsApp
     addMessage(m.to, { dir: "in", html: m.html, buttons: m.buttons, image: m.image, time: m.time });
   };

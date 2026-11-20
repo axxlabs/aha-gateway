@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Axxlabs Limited
 """The gateway app (SPEC §7)."""
 
 from __future__ import annotations
@@ -47,6 +49,8 @@ def create_app(settings: Settings, billing: Billing | None = None, staging: bool
                 "gateway": public_b64(key),
                 "version": __version__,
                 "protocol": 1,
+                "source": settings.source_url,
+                "licence": "AGPL-3.0-or-later",
                 "tunnel": settings.public_url.rstrip("/").replace("http", "ws", 1) + "/v1/tunnel",
             }
         )

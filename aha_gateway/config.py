@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Axxlabs Limited
 """Gateway settings, from environment variables only (SPEC §7.2)."""
 
 from __future__ import annotations
@@ -18,6 +20,8 @@ class Settings:
     # Staging/self-hosting with one computer: a number nobody has paired is registered to the only connected
     # computer on its first message, with no PAIR code (SPEC §6.4). Never on a shared gateway.
     open_registration: bool = False
+    # Where this gateway's source is (AGPL §13): people who chat through it are its network users (SPEC §10.1).
+    source_url: str = "https://github.com/axxlabs/aha-gateway"
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -41,4 +45,5 @@ class Settings:
             trusted_proxy=proxy,
             payment_url=os.environ.get("AHA_GW_PAYMENT_URL", ""),
             open_registration=open_registration,
+            source_url=os.environ.get("AHA_GW_SOURCE_URL", "https://github.com/axxlabs/aha-gateway"),
         )

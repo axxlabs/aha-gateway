@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Axxlabs Limited
 """Which connected computer serves which address. In memory only, rebuilt from certificates (SPEC §6.4)."""
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Axxlabs Limited
 """Pairing codes, held in memory for at most 10 minutes (SPEC §6.4)."""
 
 from __future__ import annotations

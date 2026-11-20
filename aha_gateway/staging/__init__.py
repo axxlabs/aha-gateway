@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Axxlabs Limited
 """Chat simulator: /test (SPEC §7.4). Present only in a staging build.
 
 Copied from amb-v2's developer console (its spec §15) and adapted to a gateway that stores nothing: the
@@ -97,6 +99,7 @@ class SimulatorConnector:
 
     async def send(self, message: OutboundMessage) -> None:
         event = {
+            "type": "message",
             "to": message.to.removeprefix("sim:"),
             "html": str(whatsapp(message.text)),
             "buttons": [b.model_dump() for b in message.buttons],
@@ -145,9 +148,15 @@ def mount(app: FastAPI, relay: Relay, settings: Settings) -> None:
         response = TEMPLATES.TemplateResponse(
             request,
             "test.html",
-            {"token": token, "viewer": request.state.viewer, "open_registration": settings.open_registration},
+            {
+                "token": token,
+                "viewer": request.state.viewer,
+                "open_registration": settings.open_registration,
+                "source_url": settings.source_url,
+            },
         )
         response.set_cookie(TOKEN_COOKIE, token, httponly=True, samesite="strict")
+        response.headers["Cache-Control"] = "no-store"  # always the current page script
         return response
 
     @router.post("/send", dependencies=[Depends(check_token)])

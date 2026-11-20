@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Axxlabs Limited
 """What every chat connector does (SPEC §7.1): hand inbound messages to the relay, send outbound ones."""
 
 from __future__ import annotations

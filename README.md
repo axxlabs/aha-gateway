@@ -29,6 +29,7 @@ See `deploy/compose.yaml` (gateway + Caddy for TLS). Production images are built
 | `AHA_GW_PUBLIC_URL` | `http://127.0.0.1:8700` | Advertised in `/.well-known/aha-gateway.json` |
 | `AHA_GW_HOST` / `AHA_GW_PORT` | `127.0.0.1` / `8700` | Listen address |
 | `AHA_GW_BILLING` | `off` | `stripe` is milestone M3 |
+| `AHA_GW_SOURCE_URL` | upstream repo | Where this gateway's source is, shown to its users (AGPL §13). Point it at your own source if you run a modified gateway |
 | `AHA_GW_OPEN_REGISTRATION` | `0` | `1`: a number nobody has paired is registered to the only connected computer on its first message (staging, or self-hosting with one computer; refused with billing) |
 | `AHA_GW_STAGING_ACCESS` | `local` | `local` (loopback only), `network` (LAN + Tailscale, staging on a home machine) or `proxy` (with `AHA_GW_TRUSTED_PROXY`) |
 
@@ -36,4 +37,8 @@ See `deploy/compose.yaml` (gateway + Caddy for TLS). Production images are built
 
 `uv run pytest` — real sockets: a gateway on a free port, a fake computer and the simulator as a browser.
 
-Licence: AGPL-3.0-or-later.
+## Licence
+
+Copyright (C) 2026 Axxlabs Limited. Licensed under the GNU Affero General Public License, version 3 or (at your
+option) any later version: see `LICENSE`. If you run a modified version for other people, including over a
+network, you must offer them its source (AGPL §13; set `AHA_GW_SOURCE_URL`).

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Axxlabs Limited
 """Run the gateway: `python -m aha_gateway`.
 
 Listens on AHA_GW_HOST:AHA_GW_PORT, and also on the Unix socket AHA_GW_UNIX_SOCKET when set. The socket lets

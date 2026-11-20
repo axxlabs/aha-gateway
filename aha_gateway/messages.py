@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Axxlabs Limited
 """Every text the gateway itself sends to a person. Nothing here contains user data."""
 
 NOT_CONNECTED = (

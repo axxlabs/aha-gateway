@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Axxlabs Limited
 """Tunnel handshake, pairing and relaying, end to end over real sockets (SPEC §6, §11.5–11.8)."""
 
 import asyncio

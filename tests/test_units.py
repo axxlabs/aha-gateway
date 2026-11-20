@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Axxlabs Limited
 """Certificates, pairing codes, routing and rate limits (SPEC §6.4, §6.5)."""
 
 import pytest

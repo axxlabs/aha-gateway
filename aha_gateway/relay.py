@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Axxlabs Limited
 """The relay: inbound messages go to the computer that holds the address; outbound ones to the chat app.
 
 Nothing is stored (SPEC §6.5): a message exists only in the local variables of these functions while it is

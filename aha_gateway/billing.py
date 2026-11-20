@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Axxlabs Limited
 """Subscription check for the hosted gateway (SPEC §8).
 
 The gateway keeps no customer records: subscriptions live in Stripe, keyed by the computer's instance public

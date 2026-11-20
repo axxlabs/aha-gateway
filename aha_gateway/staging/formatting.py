@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Axxlabs Limited
 """WhatsApp formatting for the simulator, copied from amb-v2 (its spec §15.2).
 
 A message as the phone shows it: *bold*, _italic_, ~strikethrough~, `code`, ``` monospace blocks ``` and

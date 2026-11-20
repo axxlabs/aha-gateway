@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Axxlabs Limited
 """The simulator's two gates and the production build (SPEC §7.4, §11.8)."""
 
 import subprocess
@@ -88,3 +90,23 @@ def test_production_wheel_has_no_staging_code(tmp_path):
     names = zipfile.ZipFile(wheel).namelist()
     assert any(n.startswith("aha_gateway/app.py") for n in names)
     assert not [n for n in names if "staging" in n]
+
+
+def test_the_gateway_names_its_source(tmp_path):
+    from fastapi.testclient import TestClient
+
+    app = create_app(settings(tmp_path, source_url="https://example.org/my-fork"), staging=True)
+    client = TestClient(app, client=("127.0.0.1", 5000))
+    info = client.get("/.well-known/aha-gateway.json").json()
+    assert info["source"] == "https://example.org/my-fork" and info["licence"] == "AGPL-3.0-or-later"
+    assert "https://example.org/my-fork" in client.get("/test").text
+
+
+def test_every_source_file_carries_the_licence_header():
+    missing = [
+        str(f)
+        for d in ("aha_gateway", "tests", "scripts")
+        for f in (ROOT / d).rglob("*")
+        if f.suffix in (".py", ".sh") and "SPDX-License-Identifier: AGPL-3.0-or-later" not in f.read_text()
+    ]
+    assert missing == []

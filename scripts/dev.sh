@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Axxlabs Limited
 # Run a staging gateway on this machine: the simulator at http://127.0.0.1:8700/test, plus a Unix socket at
 # $XDG_RUNTIME_DIR/aha-gateway/gateway.sock that a local aha computer uses.
 # AHA_GW_OPEN_REGISTRATION=1: new numbers register themselves to the one connected computer (no PAIR code).
