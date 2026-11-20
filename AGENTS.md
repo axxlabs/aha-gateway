@@ -15,3 +15,6 @@ Rules:
 - Follow the milestones in SPEC §12; don't build what's marked later (WhatsApp, Telegram, Stripe) without
   being asked.
 - `uv run ruff check . && uv run ruff format --check . && uv run pytest` before every commit.
+
+Spec first: change `SPEC.md` (in aha-root) before the code, then make the code match it (see aha-root's
+`AGENTS.md`).
