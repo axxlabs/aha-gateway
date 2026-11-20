@@ -86,8 +86,8 @@ async def serve_tunnel(
     instance = auth.instance
     routes = [c.device for c in auth.certs if cert_valid(c, gateway_public, instance)]
     rejected = [c.device for c in auth.certs if c.device not in routes]
-    await hub.attach_computer(conn, instance, set(routes))
     await conn.send_frame(Ready(sig=sign(key, handshake_message(auth.nonce)), routes=routes, rejected=rejected))
+    await hub.attach_computer(conn, instance, set(routes))  # after Ready: it may send device statuses
     log.info("computer connected (%d devices, %d rejected)", len(routes), len(rejected))
     try:
         await _frames(conn, hub, key, instance, vapid, http)

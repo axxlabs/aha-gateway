@@ -79,6 +79,7 @@ class Hub:
                 continue
             if dev in devices:
                 await _safe_send(dconn, _computer_status(True))
+                await _safe_send(conn, _device_status(dev, True))
             else:
                 await _safe_close(dconn, 4403)
 
