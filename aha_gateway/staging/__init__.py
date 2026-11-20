@@ -103,13 +103,19 @@ class SimulatorConnector:
             "image": f"data:{message.image.mime};base64,{message.image.b64}" if message.image else None,
             "time": time.strftime("%H:%M"),
         }
-        queues = self._listeners.get(message.to, set())
-        if not queues:
+        if not self._publish(message.to, event):
             log.info("simulated reply dropped: no browser listening")
+
+    async def typing(self, address: str, on: bool) -> None:
+        self._publish(address, {"type": "typing", "to": address.removeprefix("sim:"), "on": on})
+
+    def _publish(self, address: str, event: dict) -> bool:
+        queues = self._listeners.get(address, set())
         for q in list(queues):
             if q.full():
                 q.get_nowait()
             q.put_nowait(event)
+        return bool(queues)
 
 
 class SendForm(BaseModel):

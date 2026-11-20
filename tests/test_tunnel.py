@@ -18,6 +18,7 @@ from aha_gateway.protocol import (
     Pong,
     Renew,
     Renewed,
+    Typing,
     Unpair,
 )
 
@@ -74,6 +75,16 @@ async def test_pairing_then_messages_flow_both_ways(gateway, computer, phone):
     await phone.say("✅ Approve", button="ap-1-yes")
     pressed = await computer.recv()
     assert pressed.button == "ap-1-yes"
+
+
+async def test_typing_reaches_the_phone_only_for_own_numbers(gateway, computer, phone):
+    await computer.connect()
+    cert = await pair(computer, phone)
+    await computer.send(Typing(to=cert.address))
+    assert await phone.receive() == {"type": "typing", "to": "+447900000001", "on": True}
+    await computer.send(Typing(to="sim:+447900000002"))  # not this computer's number: dropped
+    await computer.send(Typing(to=cert.address, on=False))
+    assert await phone.receive() == {"type": "typing", "to": "+447900000001", "on": False}
 
 
 async def test_routes_come_back_from_certificates_after_reconnect(gateway, computer, phone):

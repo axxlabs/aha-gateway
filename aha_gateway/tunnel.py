@@ -25,6 +25,7 @@ from .protocol import (
     Ready,
     Renew,
     Renewed,
+    Typing,
     Unpair,
     b64,
     frame_too_big,
@@ -128,6 +129,8 @@ async def _dispatch(tunnel: Tunnel, relay: Relay, gateway_public: str, frame) ->
     match frame:
         case Out():
             await relay.outbound(tunnel, frame)
+        case Typing():
+            await relay.typing(tunnel, frame)
         case PairStart():
             try:
                 code = relay.pairing.create(tunnel.instance)

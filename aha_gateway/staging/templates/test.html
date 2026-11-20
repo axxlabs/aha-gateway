@@ -54,6 +54,13 @@
   .bubble code.mono { display: block; white-space: pre; overflow-x: auto; background: none; padding: 2px 0; }
   .bubble .quote { display: inline-block; border-left: 3px solid var(--wa-head); padding-left: 6px; color: var(--wa-meta); }
   .status { font-size: 12px; }
+  .bubble.typing { padding: 10px 12px; }
+  .bubble.typing i { display: inline-block; width: 7px; height: 7px; margin: 0 2px; border-radius: 50%;
+    background: var(--wa-meta); animation: blink 1.2s infinite both; }
+  .bubble.typing i:nth-child(2) { animation-delay: .2s; }
+  .bubble.typing i:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+  .chat-head .typing-note { color: var(--wa-meta); font-style: italic; }
   .status.down { color: var(--warn); }
 </style>
 </head>
@@ -98,6 +105,32 @@ function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.
 function esc(t) { const d = document.createElement("div"); d.textContent = t; return d.innerHTML; }
 function today() { return new Date().toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }); }
 
+// "typing…" (SPEC §7.4): shown while the computer says a reply is coming; never stored.
+const TYPING_TIMEOUT_MS = 10000;
+const typing = {};
+
+function setTyping(number, on) {
+  clearTimeout(typing[number]);
+  delete typing[number];
+  if (on) typing[number] = setTimeout(() => setTyping(number, false), TYPING_TIMEOUT_MS);
+  showTyping(number);
+}
+
+function showTyping(number) {
+  const column = document.getElementById("chat-" + number);
+  if (!column) return;
+  const body = column.querySelector(".chat-body");
+  const on = number in typing;
+  let dots = body.querySelector(".bubble.typing");
+  if (on && !dots) {
+    dots = el("div", "bubble in typing", "<i></i><i></i><i></i>");
+    dots.setAttribute("aria-label", "aha is typing");
+    body.appendChild(dots);
+    body.scrollTop = body.scrollHeight;
+  } else if (!on && dots) dots.remove();
+  column.querySelector(".typing-note").textContent = on ? " · typing…" : "";
+}
+
 function addMessage(number, msg) {
   (state.messages[number] ||= []).push({ ...msg, day: today() });
   save();
@@ -133,6 +166,7 @@ function render(only) {
       body.appendChild(b);
     });
     if (!msgs.length) { const d = el("div", "day"); d.appendChild(el("span", "", "New chat. Say something as this number.")); body.appendChild(d); }
+    showTyping(number);
     body.scrollTop = body.scrollHeight;
   }
 }
@@ -141,7 +175,7 @@ function buildColumn(number) {
   const column = el("section", "chat");
   column.id = "chat-" + number;
   const head = el("div", "chat-head");
-  head.innerHTML = `<span class="avatar">a</span><span><strong>aha</strong><br><span class="number">as ${esc(number)}</span></span><span class="spacer"></span>`;
+  head.innerHTML = `<span class="avatar">a</span><span><strong>Aha!</strong><br><span class="number">as ${esc(number)}</span><span class="typing-note"></span></span><span class="spacer"></span>`;
   const clear = el("button", "", "Clear"); clear.type = "button"; clear.title = "Clear this browser's copy of the chat";
   clear.onclick = () => { state.messages[number] = []; save(); render(number); };
   const close = el("button", "", "Close"); close.type = "button";
@@ -177,6 +211,8 @@ function connect() {
   source.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
     if (!state.numbers.includes(m.to)) return;
+    if (m.type === "typing") { setTyping(m.to, m.on); return; }
+    setTyping(m.to, false);  // a reply clears the indicator, as in WhatsApp
     addMessage(m.to, { dir: "in", html: m.html, buttons: m.buttons, image: m.image, time: m.time });
   };
 }

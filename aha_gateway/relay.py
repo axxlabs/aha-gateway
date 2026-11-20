@@ -16,7 +16,7 @@ from . import messages
 from .certs import issue_cert
 from .connectors.base import Connector, InboundMessage, OutboundMessage
 from .pairing import PairingCodes, parse_pair_message
-from .protocol import In, Notice, Out, Paired
+from .protocol import In, Notice, Out, Paired, Typing
 from .router import Router, TunnelLike
 
 log = logging.getLogger("aha.gateway")
@@ -124,3 +124,11 @@ class Relay:
         await self.deliver(
             OutboundMessage(to=frame.to, text=frame.text, buttons=list(frame.buttons), image=frame.image)
         )
+
+    async def typing(self, tunnel: TunnelLike, frame: Typing) -> None:
+        """Passed on like a message, with the same ownership check; nothing is kept (SPEC §6.3)."""
+        if not self.router.owns(frame.to, tunnel):
+            return
+        connector = self.connectors.get(frame.to.split(":", 1)[0])
+        if connector is not None:
+            await connector.typing(frame.to, frame.on)

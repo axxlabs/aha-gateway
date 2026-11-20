@@ -28,3 +28,7 @@ class Connector(Protocol):
     prefix: str  # address prefix this connector serves: "sim", "wa", "tg"
 
     async def send(self, message: OutboundMessage) -> None: ...
+
+    async def typing(self, address: str, on: bool) -> None:
+        """Show or hide the chat app's typing indicator for this person (SPEC §3.3, §7.1)."""
+        ...
