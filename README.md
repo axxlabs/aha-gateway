@@ -29,7 +29,7 @@ See `deploy/compose.yaml` (gateway + Caddy for TLS). Production images are built
 | `AHA_GW_PUBLIC_URL` | `http://127.0.0.1:8700` | Advertised in `/.well-known/aha-gateway.json` |
 | `AHA_GW_HOST` / `AHA_GW_PORT` | `127.0.0.1` / `8700` | Listen address |
 | `AHA_GW_BILLING` | `off` | `stripe` is milestone M3 |
-| `AHA_GW_STAGING_ACCESS` | `local` | `local` (loopback only) or `proxy` (with `AHA_GW_TRUSTED_PROXY`) |
+| `AHA_GW_STAGING_ACCESS` | `local` | `local` (loopback only), `network` (LAN + Tailscale, staging on a home machine) or `proxy` (with `AHA_GW_TRUSTED_PROXY`) |
 
 ## Tests
 

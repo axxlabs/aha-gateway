@@ -5,7 +5,8 @@ transcript lives in the browser (localStorage), and replies arrive live over Ser
 while no browser is listening for that number is dropped, like any message to a phone that's switched off.
 
 Two gates, as in amb-v2: the package is left out of production builds, and every request must come from
-loopback with no forwarding header (`local`), or from the trusted proxy with a signed-in user (`proxy`).
+loopback with no forwarding header (`local`), from the local network or Tailscale with no forwarding header
+(`network`), or from the trusted proxy with a signed-in user (`proxy`).
 Anything else gets a plain 404.
 """
 
@@ -44,10 +45,15 @@ TOKEN_HEADER = "x-sim-token"
 MAX_STREAM_ADDRESSES = 50
 QUEUE_SIZE = 100
 KEEPALIVE_SECONDS = 15
+# `network` access: the LAN (RFC 1918, IPv6 unique-local) and Tailscale (CGNAT range and its IPv6 prefix).
+LOCAL_NETWORKS = tuple(
+    ipaddress.ip_network(n)
+    for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "fc00::/7", "fd7a:115c:a1e0::/48")
+)
 
 
 def viewer(request: Request, settings: Settings) -> str:
-    """Gate 2. Returns the signed-in login with `proxy` access, "" with `local`; otherwise 404."""
+    """Gate 2. Returns the signed-in login with `proxy` access, "" with `local`/`network`; otherwise 404."""
     host = request.client.host if request.client else ""
     try:
         address = ipaddress.ip_address(host)
@@ -59,7 +65,12 @@ def viewer(request: Request, settings: Settings) -> str:
         if address not in network or not login:
             raise HTTPException(status_code=404)
         return login
-    if not address.is_loopback or any(h in request.headers for h in FORWARDING_HEADERS):
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+        address = address.ipv4_mapped
+    allowed = address.is_loopback or (
+        settings.staging_access == "network" and any(address in n for n in LOCAL_NETWORKS)
+    )
+    if not allowed or any(h in request.headers for h in FORWARDING_HEADERS):
         raise HTTPException(status_code=404)
     return ""
 

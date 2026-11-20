@@ -12,7 +12,7 @@ class Settings:
     signing_key_file: Path
     public_url: str
     billing: str = "off"  # off | stripe (SPEC §8)
-    staging_access: str = "local"  # local | proxy (simulator only, SPEC §7.4)
+    staging_access: str = "local"  # local | network | proxy (simulator only, SPEC §7.4)
     trusted_proxy: str = ""  # CIDR of the authenticating proxy when staging_access=proxy
     payment_url: str = ""
 
@@ -22,8 +22,8 @@ class Settings:
         if billing not in ("off", "stripe"):
             raise SystemExit("AHA_GW_BILLING must be 'off' or 'stripe'")
         access = os.environ.get("AHA_GW_STAGING_ACCESS", "local")
-        if access not in ("local", "proxy"):
-            raise SystemExit("AHA_GW_STAGING_ACCESS must be 'local' or 'proxy'")
+        if access not in ("local", "network", "proxy"):
+            raise SystemExit("AHA_GW_STAGING_ACCESS must be 'local', 'network' or 'proxy'")
         proxy = os.environ.get("AHA_GW_TRUSTED_PROXY", "")
         if access == "proxy" and not proxy:
             raise SystemExit("AHA_GW_STAGING_ACCESS=proxy needs AHA_GW_TRUSTED_PROXY")

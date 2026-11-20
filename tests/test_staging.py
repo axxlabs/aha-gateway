@@ -37,6 +37,20 @@ def test_local_access_needs_loopback_without_forwarding(tmp_path):
         assert e.value.status_code == 404
 
 
+def test_network_access_allows_lan_and_tailscale_only(tmp_path):
+    s = settings(tmp_path, staging_access="network")
+    for good in ("127.0.0.1", "192.168.4.20", "10.1.2.3", "172.20.0.5", "100.71.77.1", "fd7a:115c:a1e0::5"):
+        assert viewer(request(good), s) == ""
+    for bad in (
+        request("8.8.8.8"),
+        request("2a00:1450::1"),
+        request("100.128.0.1"),
+        request("192.168.4.20", {"X-Forwarded-For": "8.8.8.8"}),
+    ):
+        with pytest.raises(HTTPException):
+            viewer(bad, s)
+
+
 def test_proxy_access_needs_the_proxy_and_a_login(tmp_path):
     s = settings(tmp_path, staging_access="proxy", trusted_proxy="10.0.0.0/24")
     assert viewer(request("10.0.0.2", {"X-Auth-Request-User": "fe"}), s) == "fe"
