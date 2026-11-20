@@ -3,18 +3,70 @@
 import pytest
 
 from aha_gateway.certs import cert_valid, issue_cert, needs_renewal, new_key, public_b64
+from aha_gateway.connectors.base import InboundMessage
 from aha_gateway.pairing import PairingCodes, parse_pair_message
-from aha_gateway.protocol import TO_GATEWAY, Out, frame_too_big, normalise_phone
-from aha_gateway.relay import RateLimiter
+from aha_gateway.protocol import TO_GATEWAY, In, Out, Paired, frame_too_big, normalise_phone
+from aha_gateway.relay import RateLimiter, Relay
 from aha_gateway.router import Router
 
 
 class T:
     def __init__(self, instance):
         self.instance, self.name = instance, ""
+        self.frames = []
 
     async def send_frame(self, frame):
-        pass
+        self.frames.append(frame)
+
+
+class Sim:
+    prefix = "sim"
+
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, message):
+        self.sent.append(message.text)
+
+
+def relay(open_registration):
+    r = Relay(new_key(), Router(), PairingCodes(), open_registration=open_registration)
+    sim = Sim()
+    r.add_connector(sim)
+    return r, sim
+
+
+async def test_open_registration_binds_new_numbers_to_the_only_computer():
+    r, sim = relay(open_registration=True)
+    home = T(public_b64(new_key()))
+    r.router.attach(home)
+    await r.inbound(InboundMessage(sender="sim:+447900000005", text="hi", name="Ana"))
+    paired, inbound = home.frames
+    assert isinstance(paired, Paired) and paired.cert.address == "sim:+447900000005" and paired.name == "Ana"
+    assert paired.cert.instance == home.instance
+    assert isinstance(inbound, In) and inbound.text == "hi"
+    assert sim.sent == []
+    await r.inbound(InboundMessage(sender="sim:+447900000005", text="again"))
+    assert [type(f) for f in home.frames] == [Paired, In, In]  # registered once
+
+
+async def test_open_registration_needs_exactly_one_computer():
+    r, sim = relay(open_registration=True)
+    await r.inbound(InboundMessage(sender="sim:+447900000005", text="hi"))
+    a, b = T(public_b64(new_key())), T(public_b64(new_key()))
+    r.router.attach(a)
+    r.router.attach(b)
+    await r.inbound(InboundMessage(sender="sim:+447900000005", text="hi"))
+    assert a.frames == b.frames == []
+    assert len(sim.sent) == 2 and all("No aha computer" in t for t in sim.sent)
+
+
+async def test_without_open_registration_new_numbers_need_pairing():
+    r, sim = relay(open_registration=False)
+    home = T(public_b64(new_key()))
+    r.router.attach(home)
+    await r.inbound(InboundMessage(sender="sim:+447900000005", text="hi"))
+    assert home.frames == [] and "No aha computer" in sim.sent[0]
 
 
 def test_certificate_signed_for_one_instance_and_time():

@@ -46,8 +46,11 @@ class RateLimiter:
 
 
 class Relay:
-    def __init__(self, signing_key: Ed25519PrivateKey, router: Router, pairing: PairingCodes) -> None:
+    def __init__(
+        self, signing_key: Ed25519PrivateKey, router: Router, pairing: PairingCodes, open_registration: bool = False
+    ) -> None:
         self.signing_key = signing_key
+        self.open_registration = open_registration
         self.router = router
         self.pairing = pairing
         self.connectors: dict[str, Connector] = {}
@@ -77,12 +80,25 @@ class Relay:
             await self._pair(message, code)
             return
         tunnel = self.router.lookup(message.sender)
+        if tunnel is None and self.open_registration:
+            tunnel = await self._register(message)
         if tunnel is None:
             await self.reply(message.sender, messages.NOT_CONNECTED)
             return
         await tunnel.send_frame(
             In(id=uuid.uuid4().hex, sender=message.sender, text=message.text, button=message.button, name=message.name)
         )
+
+    async def _register(self, message: InboundMessage) -> TunnelLike | None:
+        """Open registration: bind the number to the only connected computer, as pairing would."""
+        tunnel = self.router.only_tunnel()
+        if tunnel is None:  # none, or several: no way to tell whose number this is
+            return None
+        cert = issue_cert(self.signing_key, message.sender, tunnel.instance)
+        self.router.add_route(message.sender, tunnel, cert.issued)
+        await tunnel.send_frame(Paired(cert=cert, name=message.name))
+        log.info("registered an address (open registration)")
+        return tunnel
 
     async def _pair(self, message: InboundMessage, code: str) -> None:
         instance = self.pairing.redeem(code)

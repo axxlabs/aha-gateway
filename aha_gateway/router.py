@@ -40,6 +40,10 @@ class Router:
     def tunnel_for_instance(self, instance: str) -> TunnelLike | None:
         return self._tunnels.get(instance)
 
+    def only_tunnel(self) -> TunnelLike | None:
+        """The connected computer, if exactly one is connected."""
+        return next(iter(self._tunnels.values())) if len(self._tunnels) == 1 else None
+
     def add_route(self, address: str, tunnel: TunnelLike, issued: int) -> bool:
         """The newest certificate wins (SPEC §6.4). Returns whether this tunnel now owns the address."""
         current = self._routes.get(address)

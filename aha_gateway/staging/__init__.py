@@ -136,7 +136,11 @@ def mount(app: FastAPI, relay: Relay, settings: Settings) -> None:
     @router.get("", response_class=HTMLResponse)
     def page(request: Request) -> HTMLResponse:
         token = request.cookies.get(TOKEN_COOKIE) or secrets.token_urlsafe(32)
-        response = TEMPLATES.TemplateResponse(request, "test.html", {"token": token, "viewer": request.state.viewer})
+        response = TEMPLATES.TemplateResponse(
+            request,
+            "test.html",
+            {"token": token, "viewer": request.state.viewer, "open_registration": settings.open_registration},
+        )
         response.set_cookie(TOKEN_COOKIE, token, httponly=True, samesite="strict")
         return response
 

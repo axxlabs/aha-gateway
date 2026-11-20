@@ -72,8 +72,13 @@
       <div><button type="submit">Spawn</button></div>
       <div><button type="button" class="plain" id="new-number">New number</button></div>
     </form>
+    {% if open_registration %}
+    <p class="meta">Each number is an account, with its own memories. A new number joins the connected aha computer
+      with its first message. Replies arrive only while this page is open.</p>
+    {% else %}
     <p class="meta">Each number is an account. To link one to your aha computer, run <code>aha pair</code> there and send
       <code>PAIR &lt;code&gt;</code> from that number. Replies arrive only while this page is open.</p>
+    {% endif %}
   </div>
   <div class="chats" id="chats"></div>
 </main>

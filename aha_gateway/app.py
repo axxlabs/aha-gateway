@@ -31,7 +31,7 @@ def staging_available() -> bool:
 
 def create_app(settings: Settings, billing: Billing | None = None, staging: bool | None = None) -> FastAPI:
     key = load_or_create_key(settings.signing_key_file)
-    relay = Relay(key, Router(), PairingCodes())
+    relay = Relay(key, Router(), PairingCodes(), open_registration=settings.open_registration)
     billing = billing or make_billing(settings.billing)
     app = FastAPI(title="aha gateway", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.relay = relay
