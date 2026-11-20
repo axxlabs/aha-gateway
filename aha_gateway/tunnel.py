@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 Axxlabs Limited
-"""The computer's tunnel: handshake with mutual key authentication, then frames (SPEC §6.2, §6.3)."""
+"""Computers' tunnels: mutual key authentication, then routing of opaque frames (SPEC §6.2, §6.5)."""
 
 from __future__ import annotations
 
@@ -9,46 +9,51 @@ import contextlib
 import logging
 import os
 
+import httpx
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
+from . import push as push_relay
 from .billing import Billing
 from .certs import cert_valid, handshake_message, issue_cert, public_b64, sign, verify
+from .hub import Hub
 from .protocol import (
-    AUTH,
-    TO_GATEWAY,
+    E2E,
+    FROM_COMPUTER,
+    MAX_FRAME_BYTES,
+    CertIssued,
+    CertRequest,
+    DevE2E,
+    DeviceStatus,
+    DevPair,
     Hello,
     Notice,
-    Out,
+    Pair,
     PairCode,
     PairStart,
     Ping,
     Pong,
+    Push,
     Ready,
-    Renew,
-    Renewed,
-    Typing,
-    Unpair,
+    Revoke,
     b64,
-    frame_too_big,
 )
-from .relay import Relay
 
 log = logging.getLogger("aha.gateway")
 
 AUTH_TIMEOUT = 10
-FRAME_RATE = 50  # frames per second per computer, burst 100
 
 
-class Tunnel:
-    def __init__(self, ws: WebSocket, instance: str, name: str) -> None:
+class WsConn:
+    """One WebSocket, with serialised sends."""
+
+    def __init__(self, ws: WebSocket) -> None:
         self.ws = ws
-        self.instance = instance
-        self.name = name
-        self._send_lock = asyncio.Lock()
+        self._lock = asyncio.Lock()
 
     async def send_frame(self, frame) -> None:
-        async with self._send_lock:
+        async with self._lock:
             await self.ws.send_text(frame.model_dump_json(exclude_none=True))
 
     async def close(self, code: int = 1000) -> None:
@@ -56,107 +61,108 @@ class Tunnel:
             await self.ws.close(code=code)
 
 
-async def serve_tunnel(ws: WebSocket, relay: Relay, billing: Billing) -> None:
+async def serve_tunnel(
+    ws: WebSocket, hub: Hub, key: Ed25519PrivateKey, billing: Billing, vapid: push_relay.Vapid, http: httpx.AsyncClient
+) -> None:
     await ws.accept()
-    gateway_public = public_b64(relay.signing_key)
+    conn = WsConn(ws)
+    gateway_public = public_b64(key)
     nonce = b64(os.urandom(32))
-    await ws.send_text(Hello(gateway=gateway_public, nonce=nonce).model_dump_json())
-
+    await conn.send_frame(Hello(gateway=gateway_public, nonce=nonce))
     try:
         raw = await asyncio.wait_for(ws.receive_text(), timeout=AUTH_TIMEOUT)
-        auth = AUTH.validate_json(raw)
+        auth = FROM_COMPUTER.validate_json(raw)
     except (TimeoutError, ValidationError, WebSocketDisconnect, RuntimeError):
-        await _close(ws, 4401)
+        await conn.close(4401)
         return
-    if not verify(auth.instance, handshake_message(nonce, auth.instance), auth.sig):
-        log.info("tunnel rejected: bad signature")
-        await _close(ws, 4401)
+    if auth.t != "auth" or not verify(auth.instance, handshake_message(nonce, auth.instance), auth.sig):
+        log.info("tunnel rejected: bad authentication")
+        await conn.close(4401)
         return
     if not await billing.active(auth.instance):
-        await ws.send_text(Notice(code="not_subscribed", detail="subscription not active").model_dump_json())
-        await _close(ws, 4402)
+        await conn.send_frame(Notice(code="not_subscribed", detail="subscription not active"))
+        await conn.close(4402)
         return
-
-    tunnel = Tunnel(ws, auth.instance, auth.name)
-    replaced = relay.router.attach(tunnel)
-    if replaced is not None:
-        await replaced.close(4409)
-    routes, rejected = [], []
-    for cert in auth.certs:
-        if cert_valid(cert, gateway_public, auth.instance) and relay.router.add_route(
-            cert.address, tunnel, cert.issued
-        ):
-            routes.append(cert.address)
-        else:
-            rejected.append(cert.address)
-    await tunnel.send_frame(
-        Ready(sig=sign(relay.signing_key, handshake_message(auth.nonce)), routes=routes, rejected=rejected)
-    )
-    log.info("computer connected (%d routes, %d rejected)", len(routes), len(rejected))
-
+    instance = auth.instance
+    routes = [c.device for c in auth.certs if cert_valid(c, gateway_public, instance)]
+    rejected = [c.device for c in auth.certs if c.device not in routes]
+    await hub.attach_computer(conn, instance, set(routes))
+    await conn.send_frame(Ready(sig=sign(key, handshake_message(auth.nonce)), routes=routes, rejected=rejected))
+    log.info("computer connected (%d devices, %d rejected)", len(routes), len(rejected))
     try:
-        await _frames(tunnel, relay, gateway_public)
+        await _frames(conn, hub, key, instance, vapid, http)
     finally:
-        relay.router.detach(tunnel)
+        await hub.detach_computer(conn, instance)
         log.info("computer disconnected")
 
 
-async def _frames(tunnel: Tunnel, relay: Relay, gateway_public: str) -> None:
-    allowance, last = 100.0, asyncio.get_running_loop().time()
+async def _frames(
+    conn: WsConn, hub: Hub, key: Ed25519PrivateKey, instance: str, vapid: push_relay.Vapid, http: httpx.AsyncClient
+) -> None:
+    pending: set[asyncio.Task] = set()
     while True:
         try:
-            raw = await tunnel.ws.receive_text()
+            raw = await conn.ws.receive_text()
         except (WebSocketDisconnect, RuntimeError):
             return
-        now = asyncio.get_running_loop().time()
-        allowance = min(100.0, allowance + (now - last) * FRAME_RATE)
-        last = now
-        if allowance < 1:
-            await tunnel.close(4429)
+        if not hub.computer_frames.allow(instance):
+            await conn.close(4429)
             return
-        allowance -= 1
-        if frame_too_big(raw):
-            await tunnel.close(4413)
+        if len(raw) > MAX_FRAME_BYTES:
+            await conn.close(4413)
             return
         try:
-            frame = TO_GATEWAY.validate_json(raw)
+            frame = FROM_COMPUTER.validate_json(raw)
         except ValidationError:
             log.info("tunnel closed: invalid frame")
-            await tunnel.close(4400)
+            await conn.close(4400)
             return
-        await _dispatch(tunnel, relay, gateway_public, frame)
-
-
-async def _dispatch(tunnel: Tunnel, relay: Relay, gateway_public: str, frame) -> None:
-    match frame:
-        case Out():
-            await relay.outbound(tunnel, frame)
-        case Typing():
-            await relay.typing(tunnel, frame)
-        case PairStart():
-            try:
-                code = relay.pairing.create(tunnel.instance)
-            except RuntimeError:
-                await tunnel.send_frame(Notice(code="pairing_busy", detail="try again later"))
+        comp = hub.computer(instance)
+        if comp is None or comp.conn is not conn:
+            return  # replaced by a newer connection
+        match frame:
+            case E2E():
+                dconn = hub.device_conn(frame.dev, instance) if frame.dev in comp.devices else None
+                if dconn is None:
+                    await conn.send_frame(DeviceStatus(dev=frame.dev, online=False))
+                else:
+                    try:
+                        await dconn.send_frame(DevE2E(box=frame.box))
+                    except Exception:
+                        await conn.send_frame(DeviceStatus(dev=frame.dev, online=False))
+            case PairStart():
+                try:
+                    code = hub.pairing.create(instance)
+                except RuntimeError:
+                    await conn.send_frame(Notice(code="pairing_busy", detail="try again later"))
+                    continue
+                await conn.send_frame(PairCode(code=code, expires_in=600))
+            case Pair():
+                dconn = hub.pairing.device_for(frame.code, instance)
+                if dconn is None:
+                    await conn.send_frame(Notice(code="pair_gone", detail=frame.code))
+                else:
+                    await dconn.send_frame(DevPair(body=frame.body))
+            case CertRequest():
+                if not hub.cert_requests.allow(instance):
+                    await conn.send_frame(Notice(code="cert_rate_limited", detail=frame.id))
+                    continue
+                cert = issue_cert(key, frame.device, instance, frame.tag)
+                comp.devices.add(frame.device)
+                await conn.send_frame(CertIssued(id=frame.id, cert=cert))
+            case Push():
+                if not hub.pushes.allow(instance) or not push_relay.endpoint_allowed(frame.endpoint):
+                    await conn.send_frame(Notice(code="push_refused"))
+                    continue
+                task = asyncio.create_task(push_relay.deliver(http, vapid, frame))
+                pending.add(task)
+                task.add_done_callback(pending.discard)
+            case Revoke():
+                await hub.revoke(frame.dev, instance)
+            case Ping():
+                await conn.send_frame(Pong())
+            case Pong():
+                pass
+            case _:
+                await conn.close(4400)
                 return
-            await tunnel.send_frame(PairCode(code=code, expires_in=600))
-        case Unpair():
-            relay.router.remove_route(frame.address, tunnel)
-        case Renew():
-            if cert_valid(frame.cert, gateway_public, tunnel.instance) and relay.router.owns(
-                frame.cert.address, tunnel
-            ):
-                cert = issue_cert(relay.signing_key, frame.cert.address, tunnel.instance)
-                relay.router.add_route(cert.address, tunnel, cert.issued)
-                await tunnel.send_frame(Renewed(cert=cert))
-            else:
-                await tunnel.send_frame(Notice(code="renew_refused", detail="certificate not renewable"))
-        case Ping():
-            await tunnel.send_frame(Pong())
-        case Pong():
-            pass
-
-
-async def _close(ws: WebSocket, code: int) -> None:
-    with contextlib.suppress(RuntimeError):
-        await ws.close(code=code)

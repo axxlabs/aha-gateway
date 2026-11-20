@@ -1,13 +1,13 @@
 [project]
 name = "aha-gateway"
-version = "0.1.0"
-description = "aha gateway: relays chat messages between chat apps and aha computers, and stores nothing"
+version = "0.2.0"
+description = "Aha! gateway: relays end-to-end encrypted messages between devices and aha computers, and stores nothing"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.12"
 dependencies = [
     "cryptography>=44",
     "fastapi>=0.115",
-    "jinja2>=3.1",
+    "httpx>=0.28",
     "pydantic>=2.9",
     "uvicorn[standard]>=0.32",
 ]
@@ -26,7 +26,6 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-# The production artefact never contains the chat simulator (SPEC §7.4).
 packages = ["aha_gateway"]
 exclude = ["aha_gateway/staging"]
 

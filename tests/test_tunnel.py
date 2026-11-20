@@ -1,203 +1,205 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 Axxlabs Limited
-"""Tunnel handshake, pairing and relaying, end to end over real sockets (SPEC §6, §11.5–11.8)."""
+"""The gateway end to end: tunnels, devices, pairing rendezvous, routing, revocation, and that it keeps and
+logs nothing (SPEC §6, §7, §11.6)."""
 
 import asyncio
 import logging
 
+import httpx
 import pytest
 import websockets
 
-from aha_gateway.certs import issue_cert, new_key
 from aha_gateway.protocol import (
-    In,
+    E2E,
+    CertIssued,
+    CertRequest,
+    ComputerStatus,
+    DevE2E,
+    DeviceReady,
+    DevPair,
     Notice,
-    Out,
-    PairCode,
-    Paired,
+    Pair,
+    PairHello,
     PairStart,
-    Ping,
-    Pong,
-    Renew,
-    Renewed,
-    Typing,
-    Unpair,
+    Push,
+    Revoke,
+    b64,
 )
 
-from .conftest import Computer, Phone
+from .conftest import Computer, Device
+
+TAG = b64(b"\x07" * 16)
+BOX = b64(b"CANARY-BOX-" + b"x" * 64)
 
 
-async def pair(computer: Computer, phone: Phone):
+async def paired_device(gateway, computer: Computer) -> tuple[Device, object]:
+    """A device paired through the rendezvous, with a certificate from the gateway."""
     await computer.send(PairStart())
-    code = await computer.recv()
-    assert isinstance(code, PairCode)
-    r = await phone.say(f"PAIR {code.code}")
-    assert r.status_code == 200
-    paired = await computer.recv()
-    assert isinstance(paired, Paired)
-    computer.certs.append(paired.cert)
-    reply = await phone.receive()
-    assert f"Paired with {computer.name}" in reply["html"]
-    return paired.cert
+    code = (await computer.recv()).code
+    dev = Device(gateway)
+    await dev.open()
+    await dev.send(PairHello(code=code))
+    hello = await computer.recv()
+    assert isinstance(hello, Pair) and hello.code == code and hello.body == {"t": "hello"}
+    await computer.send(Pair(code=code, body={"t": "bundle", "ikc": "AAAA"}))
+    assert (await dev.recv()) == DevPair(body={"t": "bundle", "ikc": "AAAA"})
+    await dev.send(DevPair(body={"t": "finish", "mac": "BBBB"}))
+    assert (await computer.recv()).body == {"t": "finish", "mac": "BBBB"}
+    await computer.send(CertRequest(id="r1", device=dev.dev, tag=TAG))
+    issued = await computer.recv()
+    assert (
+        isinstance(issued, CertIssued) and issued.cert.device == dev.dev and issued.cert.instance == computer.instance
+    )
+    await dev.ws.close()
+    computer.certs.append(issued.cert)
+    return dev, issued.cert
 
 
-async def test_mutual_handshake(computer):
+async def test_computer_handshake_and_tampered_signature(gateway, computer):
     ready = await computer.connect()
     assert ready.routes == []
-    await computer.send(Ping())
-    assert isinstance(await computer.recv(), Pong)
+    other = Computer(gateway)
+    with pytest.raises(websockets.ConnectionClosed) as e:
+        await other.connect(tamper=True)
+    assert e.value.rcvd.code == 4401
 
 
-async def test_wrong_pin_is_detected_by_the_computer(computer):
-    with pytest.raises(AssertionError, match="pin"):
-        await computer.connect(pin="AAAA")
-
-
-async def test_bad_signature_is_rejected(computer):
-    with pytest.raises((websockets.ConnectionClosed, ValueError)):
-        await computer.connect(tamper=True)
-
-
-async def test_pairing_then_messages_flow_both_ways(gateway, computer, phone):
+async def test_pairing_rendezvous_then_encrypted_frames_both_ways(gateway, computer):
     await computer.connect()
-    cert = await pair(computer, phone)
-    assert cert.address == "sim:+447900000001"
-
-    await phone.say("hello there")
-    inbound = await computer.recv()
-    assert isinstance(inbound, In) and inbound.text == "hello there" and inbound.sender == cert.address
-
-    await computer.send(
-        Out(id="r1", to=cert.address, text="*Hi* Fe", buttons=[{"id": "ap-1-yes", "label": "✅ Approve"}])
-    )
-    event = await phone.receive()
-    assert event["html"] == "<strong>Hi</strong> Fe"
-    assert event["buttons"] == [{"id": "ap-1-yes", "label": "✅ Approve"}]
-
-    await phone.say("✅ Approve", button="ap-1-yes")
-    pressed = await computer.recv()
-    assert pressed.button == "ap-1-yes"
+    dev, cert = await paired_device(gateway, computer)
+    phone = Device(gateway)
+    phone.key, phone.dev = dev.key, dev.dev
+    ready = await phone.auth(cert)
+    assert ready == DeviceReady(online=True)
+    status = await computer.recv(skip_status=False)
+    assert status.t == "device" and status.dev == phone.dev and status.online
+    await phone.send(DevE2E(box=BOX))
+    got = await computer.recv()
+    assert got == E2E(dev=phone.dev, box=BOX)
+    await computer.send(E2E(dev=phone.dev, box=BOX))
+    assert (await phone.recv()) == DevE2E(box=BOX)
 
 
-async def test_typing_reaches_the_phone_only_for_own_numbers(gateway, computer, phone):
+async def test_a_code_works_once_and_unknown_codes_are_refused(gateway, computer):
     await computer.connect()
-    cert = await pair(computer, phone)
-    await computer.send(Typing(to=cert.address))
-    assert await phone.receive() == {"type": "typing", "to": "+447900000001", "on": True}
-    await computer.send(Typing(to="sim:+447900000002"))  # not this computer's number: dropped
-    await computer.send(Typing(to=cert.address, on=False))
-    assert await phone.receive() == {"type": "typing", "to": "+447900000001", "on": False}
+    await computer.send(PairStart())
+    code = (await computer.recv()).code
+    first, second = Device(gateway), Device(gateway)
+    await first.open()
+    await first.send(PairHello(code=code))
+    await computer.recv()
+    await second.open()
+    await second.send(PairHello(code=code))
+    assert (await second.recv()) == Notice(code="pair_unknown")
+    assert await second.closed_with() == 4404
+    third = Device(gateway)
+    await third.open()
+    await third.send(PairHello(code="ZZZ-ZZZ"))
+    assert (await third.recv()).code == "pair_unknown"
 
 
-async def test_routes_come_back_from_certificates_after_reconnect(gateway, computer, phone):
+async def test_bad_device_signature_and_foreign_certificates_are_refused(gateway, computer):
     await computer.connect()
-    await pair(computer, phone)
+    _, cert = await paired_device(gateway, computer)
+    thief = Device(gateway)  # has the certificate but not the key
+    await thief.open()
+    from aha_gateway.certs import device_message, sign
+    from aha_gateway.protocol import DevAuth
+
+    await thief.send(DevAuth(cert=cert, sig=sign(thief.key, device_message(thief.hello.nonce, cert.device))))
+    assert await thief.closed_with() == 4401
+
+
+async def test_revocation_closes_the_device_and_keeps_it_out(gateway, computer):
+    await computer.connect()
+    dev, cert = await paired_device(gateway, computer)
+    phone = Device(gateway)
+    phone.key, phone.dev = dev.key, dev.dev
+    await phone.auth(cert)
+    await computer.send(Revoke(dev=phone.dev))
+    assert await phone.closed_with() == 4403
+    # After a reconnect without that certificate the computer no longer lists it, so it can't come back.
+    await computer.close()
+    computer.certs = []
+    await computer.connect()
+    again = Device(gateway)
+    again.key, again.dev = dev.key, dev.dev
+    await again.open()
+    from aha_gateway.certs import device_message, sign
+    from aha_gateway.protocol import DevAuth
+
+    await again.send(DevAuth(cert=cert, sig=sign(again.key, device_message(again.hello.nonce, again.dev))))
+    assert await again.closed_with() == 4403
+
+
+async def test_offline_computer_and_status_changes(gateway, computer):
+    await computer.connect()
+    dev, cert = await paired_device(gateway, computer)
     await computer.close()
     await asyncio.sleep(0.1)
-    await phone.say("anyone there?")
-    assert "No aha computer is connected" in (await phone.receive())["html"]
-
-    ready = await computer.connect()
-    assert ready.routes == ["sim:+447900000001"]
-    await phone.say("back?")
-    assert (await computer.recv()).text == "back?"
-
-
-async def test_certificate_for_another_computer_is_rejected(gateway, computer):
-    stolen = issue_cert(gateway.relay.signing_key, "sim:+447900000009", "AAAA" + computer.instance[4:])
-    computer.certs = [stolen]
-    ready = await computer.connect()
-    assert ready.routes == [] and ready.rejected == ["sim:+447900000009"]
-
-
-async def test_certificate_from_another_gateway_is_rejected(computer):
-    forged = issue_cert(new_key(), "sim:+447900000009", computer.instance)
-    computer.certs = [forged]
-    ready = await computer.connect()
-    assert ready.rejected == ["sim:+447900000009"]
-
-
-async def test_newest_pairing_takes_over_the_address(gateway, phone):
-    first, second = Computer(gateway, "First"), Computer(gateway, "Second")
-    await first.connect()
-    await second.connect()
-    await pair(first, phone)
-    await second.send(PairStart())
-    code = await second.recv()
-    await phone.say(f"PAIR {code.code}")
-    assert isinstance(await second.recv(), Paired)
-    await phone.receive()
-    await phone.say("who gets this?")
-    assert (await second.recv()).text == "who gets this?"
-
-
-async def test_computer_cannot_message_an_address_it_does_not_hold(gateway, computer, phone):
+    phone = Device(gateway)
+    phone.key, phone.dev = dev.key, dev.dev
+    assert (await phone.auth(cert)) == DeviceReady(online=False)
+    await phone.send(DevE2E(box=BOX))
+    assert (await phone.recv()) == ComputerStatus(online=False)
     await computer.connect()
-    await computer.send(Out(id="x", to="sim:+447900000001", text="spam"))
-    notice = await computer.recv()
-    assert isinstance(notice, Notice) and notice.code == "not_your_address"
+    assert (await phone.recv()) == ComputerStatus(online=True)
 
 
-async def test_wrong_and_reused_codes(gateway, computer, phone):
+async def test_frames_to_absent_or_foreign_devices_are_not_delivered(gateway, computer):
     await computer.connect()
-    await phone.say("PAIR AAA-BBB")
-    assert "valid or has expired" in (await phone.receive())["html"]
-    await pair(computer, phone)
-    other = Phone(gateway, "+447900000002")
-    await other.open()
-    await computer.send(PairStart())
-    code = await computer.recv()
-    await other.say(f"PAIR {code.code}")
-    await computer.recv()
-    await other.receive()
-    await other.say(f"PAIR {code.code}")
-    assert "valid or has expired" in (await other.receive())["html"]
-    await other.close()
+    dev, _ = await paired_device(gateway, computer)
+    await computer.send(E2E(dev=dev.dev, box=BOX))  # paired but not connected
+    status = await computer.recv(skip_status=False)
+    assert status.t == "device" and status.dev == dev.dev and not status.online
+    other = Computer(gateway, "Other")
+    await other.connect()
+    await other.send(E2E(dev=dev.dev, box=BOX))  # not its device
+    status = await other.recv(skip_status=False)
+    assert status.t == "device" and not status.online
 
 
-async def test_unpair_and_renew(gateway, computer, phone):
+async def test_browsers_from_other_sites_are_refused(gateway):
+    evil = Device(gateway)
+    with pytest.raises((websockets.InvalidStatus, websockets.ConnectionClosed)):
+        await evil.open(origin="https://evil.example")
+    ok = Device(gateway)
+    assert (await ok.open(origin="http://127.0.0.1:5173")).vapid
+
+
+async def test_pushes_only_to_known_services(gateway, computer):
     await computer.connect()
-    cert = await pair(computer, phone)
-    await computer.send(Renew(cert=cert))
-    renewed = await computer.recv()
-    assert isinstance(renewed, Renewed) and renewed.cert.issued >= cert.issued
-    await computer.send(Unpair(address=cert.address))
-    await asyncio.sleep(0.05)
-    await phone.say("still there?")
-    assert "No aha computer is connected" in (await phone.receive())["html"]
+    await computer.send(Push(endpoint="https://evil.example/x", body="AAAA"))
+    assert (await computer.recv()) == Notice(code="push_refused")
 
 
-async def test_invalid_frame_closes_the_tunnel(computer):
-    await computer.connect()
-    await computer.ws.send('{"t":"in","id":"x","sender":"sim:+447900000001","text":"forged"}')
-    with pytest.raises(websockets.ConnectionClosed):
-        await computer.recv()
+async def test_the_gateway_serves_no_pages(gateway):
+    async with httpx.AsyncClient(base_url=gateway.url) as http:
+        info = (await http.get("/.well-known/aha-gateway.json")).json()
+        assert info["protocol"] == 2 and info["vapid"] and info["source"].startswith("https://")
+        for path in ("/", "/test", "/index.html", "/app"):
+            assert (await http.get(path)).status_code == 404
 
 
-async def test_second_connection_with_same_key_replaces_the_first(gateway, computer):
-    await computer.connect()
-    old_ws = computer.ws
-    await computer.connect()
-    with pytest.raises(websockets.ConnectionClosed):
-        await asyncio.wait_for(old_ws.recv(), 2)
-
-
-async def test_nothing_is_written_and_nothing_personal_is_logged(gateway, computer, phone, tmp_path, caplog):
-    """SPEC §6.5, §11.7: relaying writes no file and logs no address or message text."""
+async def test_nothing_is_written_and_nothing_identifying_is_logged(gateway, computer, tmp_path, caplog):
+    """SPEC §6.7, §11.6: relaying writes no file and logs no device ids, tags, certificates or boxes."""
     caplog.set_level(logging.DEBUG)
-    before = {p: p.stat().st_mtime for p in tmp_path.rglob("*")}
     await computer.connect()
-    cert = await pair(computer, phone)
-    await phone.say("CANARY-MESSAGE-123 my secret plans")
-    assert (await computer.recv()).text.startswith("CANARY")
-    await computer.send(Out(id="r", to=cert.address, text="CANARY-REPLY-456"))
-    await phone.receive()
+    before = {p: p.stat().st_mtime for p in tmp_path.rglob("*")}
+    dev, cert = await paired_device(gateway, computer)
+    phone = Device(gateway)
+    phone.key, phone.dev = dev.key, dev.dev
+    await phone.auth(cert)
+    await phone.send(DevE2E(box=BOX))
+    await computer.recv()
+    await computer.send(E2E(dev=phone.dev, box=BOX))
+    await phone.recv()
     after = {p: p.stat().st_mtime for p in tmp_path.rglob("*")}
     assert after == before
-    # Only the gateway's own loggers (and the server's); the test's clients log their own traffic.
     logged = "\n".join(
         r.getMessage() for r in caplog.records if r.name.startswith(("aha.gateway", "uvicorn", "fastapi", "starlette"))
     )
     assert "connected" in logged
-    for secret in ("CANARY", "7900000001", "Paired with"):
+    for secret in ("CANARY", phone.dev, TAG, cert.sig, computer.instance):
         assert secret not in logged

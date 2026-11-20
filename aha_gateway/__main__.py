@@ -21,7 +21,7 @@ def main() -> None:
     # would identify people.
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     app = create_app(Settings.from_env())
-    common = {"access_log": False, "log_level": "warning", "ws_max_size": 2_100_000, "lifespan": "off"}
+    common = {"access_log": False, "log_level": "warning", "ws_max_size": 3_000_000, "lifespan": "on"}
     configs = [
         uvicorn.Config(
             app,
