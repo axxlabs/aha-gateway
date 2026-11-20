@@ -1,0 +1,21 @@
+# aha gateway. Build from the repo root:
+#   production: podman build -f deploy/Containerfile -t aha-gateway .
+#   staging:    podman build -f deploy/Containerfile --build-arg STAGING=1 -t aha-gateway:staging .
+FROM docker.io/library/python:3.12-slim AS build
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+WORKDIR /src
+COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY aha_gateway ./aha_gateway
+ARG STAGING=0
+# The production wheel excludes aha_gateway/staging (pyproject); staging installs the source tree instead.
+RUN if [ "$STAGING" = "1" ]; then uv pip install --system --no-cache . && cp -r aha_gateway/staging \
+      "$(python -c 'import aha_gateway,os;print(os.path.dirname(aha_gateway.__file__))')/"; \
+    else uv build --wheel -o /dist && uv pip install --system --no-cache /dist/*.whl; fi
+
+FROM docker.io/library/python:3.12-slim
+COPY --from=build /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+RUN useradd --system --uid 10001 aha
+USER aha
+ENV AHA_GW_HOST=0.0.0.0 AHA_GW_PORT=8700 PYTHONUNBUFFERED=1
+EXPOSE 8700
+ENTRYPOINT ["python", "-m", "aha_gateway"]

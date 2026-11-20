@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>aha · chat simulator</title>
+<style>
+  :root { --bg: #fafaf8; --fg: #1d1d1b; --muted: #6b6b66; --line: #deded8; --accent: #2b5fd9; --warn: #a33; --card: #fff;
+          --wa-wall: #efeae2; --wa-out: #d9fdd3; --wa-in: #fff; --wa-head: #008069; --wa-meta: #667781; --wa-text: #111b21; --wa-day: #ffffffd9; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --fg: #ececea; --muted: #9a9a94; --line: #34342f; --accent: #8fb0ff; --warn: #f08a8a; --card: #1f1f1d;
+            --wa-wall: #0b141a; --wa-out: #005c4b; --wa-in: #202c33; --wa-head: #202c33; --wa-meta: #8696a0; --wa-text: #e9edef; --wa-day: #182229; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, sans-serif; }
+  header { border-bottom: 1px solid var(--line); padding: 10px 16px; display: flex; gap: 16px; flex-wrap: wrap; align-items: baseline; }
+  main { padding: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 0 auto 14px; max-width: 1100px; }
+  .meta { color: var(--muted); font-size: 12px; }
+  input[type=text] { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; }
+  button { padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--accent); color: #fff; font: inherit; cursor: pointer; }
+  button.plain { background: transparent; color: var(--fg); }
+  label { display: block; margin: 6px 0 3px; color: var(--muted); font-size: 13px; }
+  .spawn { display: grid; grid-template-columns: 2fr auto auto; gap: 8px; align-items: end; }
+  @media (max-width: 640px) { .spawn { grid-template-columns: 1fr; } }
+  .chats { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 8px; align-items: flex-start; }
+  .chat { flex: 0 0 380px; max-width: calc(100vw - 32px); display: flex; flex-direction: column; height: 76vh; min-height: 420px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: var(--wa-wall); color: var(--wa-text); }
+  .chat-head { display: flex; gap: 10px; align-items: center; padding: 8px 12px; background: var(--wa-head); color: #fff; line-height: 1.25; }
+  .chat-head .number { font-size: 12px; opacity: .85; }
+  .chat-head .spacer { flex: 1; }
+  .chat-head button { background: transparent; border: 1px solid #ffffff80; color: #fff; padding: 2px 10px; border-radius: 12px; font-size: 12px; }
+  .avatar { flex: 0 0 34px; height: 34px; border-radius: 50%; background: #dfe5e7; color: #54656f; display: grid; place-items: center; font-weight: 600; }
+  .chat-body { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px;
+    background-image: radial-gradient(color-mix(in srgb, var(--wa-meta) 18%, transparent) 1px, transparent 1px); background-size: 18px 18px; }
+  .bubble { position: relative; max-width: 85%; padding: 6px 8px 4px; border-radius: 8px; box-shadow: 0 1px .5px #0b141a21; }
+  .bubble .text { white-space: pre-wrap; word-break: break-word; font: 14px/1.4 system-ui, sans-serif; }
+  .bubble a { color: #027eb5; }
+  .bubble img { display: block; max-width: 100%; border-radius: 6px; margin-bottom: 4px; cursor: zoom-in; }
+  .bubble.out { align-self: flex-end; background: var(--wa-out); border-top-right-radius: 0; margin-top: 6px; }
+  .bubble.in { align-self: flex-start; background: var(--wa-in); border-top-left-radius: 0; }
+  .bubble.out::after, .bubble.in::before { content: ""; position: absolute; top: 0; width: 8px; height: 10px; }
+  .bubble.out::after { right: -8px; background: linear-gradient(to bottom left, var(--wa-out) 50%, transparent 50%); }
+  .bubble.in::before { left: -8px; background: linear-gradient(to bottom right, var(--wa-in) 50%, transparent 50%); }
+  .bubble .stamp { font-size: 11px; color: var(--wa-meta); text-align: right; margin-top: 2px; }
+  .choices { display: flex; flex-direction: column; gap: 2px; margin: 6px -8px 0; border-top: 1px solid #0b141a14; }
+  .choices .choice { width: 100%; background: none; border: 0; padding: 7px 8px; color: #027eb5; font: 600 14px system-ui, sans-serif; cursor: pointer; }
+  .choices .choice:hover { background: #0b141a0a; }
+  .day { align-self: center; margin: 8px 0 2px; }
+  .day span { background: var(--wa-day); color: var(--wa-meta); font-size: 12px; padding: 3px 10px; border-radius: 8px; box-shadow: 0 1px .5px #0b141a21; }
+  .chat-foot { display: flex; gap: 8px; padding: 8px; background: color-mix(in srgb, var(--wa-wall) 70%, var(--wa-meta)); }
+  .chat-foot input[type=text] { border-radius: 20px; border: none; background: var(--wa-in); color: var(--wa-text); }
+  .chat-foot button { border: none; border-radius: 50%; width: 38px; height: 38px; padding: 0; background: #00a884; flex: 0 0 38px; }
+  .bubble code { font: 13px/1.4 ui-monospace, monospace; background: color-mix(in srgb, var(--wa-meta) 15%, transparent); padding: 0 3px; border-radius: 3px; }
+  .bubble code.mono { display: block; white-space: pre; overflow-x: auto; background: none; padding: 2px 0; }
+  .bubble .quote { display: inline-block; border-left: 3px solid var(--wa-head); padding-left: 6px; color: var(--wa-meta); }
+  .status { font-size: 12px; }
+  .status.down { color: var(--warn); }
+</style>
+</head>
+<body>
+<header>
+  <strong>aha · chat simulator</strong>
+  <span class="meta">Staging only. The gateway keeps nothing: this transcript lives in your browser.</span>
+  <span class="status" id="status">connecting…</span>
+  {% if viewer %}<span class="meta">Signed in as {{ viewer }}</span>{% endif %}
+</header>
+<main>
+  <div class="card">
+    <form class="spawn" id="spawn">
+      <div><label for="number">Chat as (international number)</label>
+        <input type="text" id="number" placeholder="+44 7900 000001" autocomplete="off"></div>
+      <div><button type="submit">Spawn</button></div>
+      <div><button type="button" class="plain" id="new-number">New number</button></div>
+    </form>
+    <p class="meta">Each number is an account. To link one to your aha computer, run <code>aha pair</code> there and send
+      <code>PAIR &lt;code&gt;</code> from that number. Replies arrive only while this page is open.</p>
+  </div>
+  <div class="chats" id="chats"></div>
+</main>
+<script>
+"use strict";
+const TOKEN = {{ token|tojson }};
+const STORE = "aha-sim-v1";
+const state = load();
+let source = null;
+
+function load() {
+  try { return JSON.parse(localStorage.getItem(STORE)) || { numbers: [], messages: {} }; }
+  catch (e) { return { numbers: [], messages: {} }; }
+}
+function save() { localStorage.setItem(STORE, JSON.stringify(state)); }
+function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; }
+function esc(t) { const d = document.createElement("div"); d.textContent = t; return d.innerHTML; }
+function today() { return new Date().toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }); }
+
+function addMessage(number, msg) {
+  (state.messages[number] ||= []).push({ ...msg, day: today() });
+  save();
+  render(number);
+}
+
+function render(only) {
+  const chats = document.getElementById("chats");
+  for (const number of state.numbers) {
+    if (only && number !== only) continue;
+    let column = document.getElementById("chat-" + number);
+    if (!column) { column = buildColumn(number); chats.appendChild(column); }
+    const body = column.querySelector(".chat-body");
+    body.innerHTML = "";
+    const msgs = state.messages[number] || [];
+    let day = "";
+    msgs.forEach((m, i) => {
+      if (m.day !== day) { day = m.day; const d = el("div", "day"); d.appendChild(el("span", "", esc(day))); body.appendChild(d); }
+      const b = el("div", "bubble " + (m.dir === "out" ? "out" : "in"));
+      if (m.image) { const img = el("img"); img.src = m.image; img.alt = "image"; img.onclick = () => window.open(m.image); b.appendChild(img); }
+      if (m.html) b.appendChild(el("div", "text", m.html));
+      if (m.dir === "in" && m.buttons && m.buttons.length && i === msgs.length - 1) {
+        const choices = el("div", "choices");
+        for (const btn of m.buttons) {
+          const c = el("button", "choice", esc(btn.label));
+          c.type = "button";
+          c.onclick = () => send(number, btn.label, btn.id);
+          choices.appendChild(c);
+        }
+        b.appendChild(choices);
+      }
+      b.appendChild(el("div", "stamp", esc(m.time || "")));
+      body.appendChild(b);
+    });
+    if (!msgs.length) { const d = el("div", "day"); d.appendChild(el("span", "", "New chat. Say something as this number.")); body.appendChild(d); }
+    body.scrollTop = body.scrollHeight;
+  }
+}
+
+function buildColumn(number) {
+  const column = el("section", "chat");
+  column.id = "chat-" + number;
+  const head = el("div", "chat-head");
+  head.innerHTML = `<span class="avatar">a</span><span><strong>aha</strong><br><span class="number">as ${esc(number)}</span></span><span class="spacer"></span>`;
+  const clear = el("button", "", "Clear"); clear.type = "button"; clear.title = "Clear this browser's copy of the chat";
+  clear.onclick = () => { state.messages[number] = []; save(); render(number); };
+  const close = el("button", "", "Close"); close.type = "button";
+  close.onclick = () => { state.numbers = state.numbers.filter(n => n !== number); delete state.messages[number]; save(); column.remove(); connect(); };
+  head.append(clear, close);
+  const body = el("div", "chat-body");
+  const foot = el("form", "chat-foot");
+  foot.innerHTML = `<input type="text" maxlength="4000" placeholder="Type a message" aria-label="Message as ${esc(number)}" required><button type="submit" aria-label="Send">&#10148;</button>`;
+  foot.onsubmit = (ev) => { ev.preventDefault(); const input = foot.querySelector("input"); const text = input.value; input.value = ""; send(number, text, null); input.focus(); };
+  column.append(head, body, foot);
+  return column;
+}
+
+async function send(number, text, button) {
+  const res = await fetch("/test/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Sim-Token": TOKEN },
+    body: JSON.stringify({ number, text, button }),
+  });
+  if (!res.ok) { alert("Not sent: " + (await res.text())); return; }
+  const data = await res.json();
+  addMessage(number, { dir: "out", html: data.html, time: data.time });
+}
+
+function connect() {
+  if (source) source.close();
+  const status = document.getElementById("status");
+  if (!state.numbers.length) { status.textContent = "no chats"; return; }
+  const query = state.numbers.map(n => "n=" + encodeURIComponent(n)).join("&");
+  source = new EventSource("/test/events?" + query);
+  source.onopen = () => { status.textContent = "live"; status.className = "status"; };
+  source.onerror = () => { status.textContent = "reconnecting…"; status.className = "status down"; };
+  source.onmessage = (ev) => {
+    const m = JSON.parse(ev.data);
+    if (!state.numbers.includes(m.to)) return;
+    addMessage(m.to, { dir: "in", html: m.html, buttons: m.buttons, image: m.image, time: m.time });
+  };
+}
+
+function normalise(text) {
+  let d = text.replace(/[\s().-]/g, "");
+  if (d.startsWith("00")) d = "+" + d.slice(2);
+  if (!d.startsWith("+")) d = "+" + d;
+  return /^\+[1-9]\d{6,14}$/.test(d) ? d : null;
+}
+
+function spawn(number) {
+  if (!state.numbers.includes(number)) { state.numbers.push(number); state.messages[number] ||= []; save(); connect(); }
+  render(number);
+  const column = document.getElementById("chat-" + number);
+  column.scrollIntoView({ inline: "center", block: "nearest" });
+  column.querySelector(".chat-foot input").focus();
+}
+
+document.getElementById("spawn").onsubmit = (ev) => {
+  ev.preventDefault();
+  const number = normalise(document.getElementById("number").value);
+  if (!number) { alert("Use an international number, e.g. +44 7900 000001"); return; }
+  spawn(number);
+};
+document.getElementById("new-number").onclick = () => {
+  for (let i = 1; i < 100; i++) {
+    const number = "+4479000000" + String(i).padStart(2, "0");
+    if (!state.numbers.includes(number)) { spawn(number); return; }
+  }
+};
+
+render();
+connect();
+</script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+# TLS in front of the gateway. No access log: URLs and client addresses would identify people (SPEC §6.5).
+{$AHA_DOMAIN} {
+	reverse_proxy gateway:8700
+}

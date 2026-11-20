@@ -1,0 +1,25 @@
+# Self-hosted aha gateway: the gateway plus Caddy for TLS (SPEC §7.2).
+# 1. Point an A/AAAA record for your domain at this server.
+# 2. Put AHA_DOMAIN=gateway.example.com in deploy/.env
+# 3. podman-compose up -d   (or docker compose up -d)
+# The gateway's signing key is created on first start in the "keys" volume. Back it up: computers pin it.
+services:
+  gateway:
+    build: { context: .., dockerfile: deploy/Containerfile }
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      AHA_GW_PUBLIC_URL: https://${AHA_DOMAIN}
+      AHA_GW_SIGNING_KEY_FILE: /keys/gateway.key
+    volumes: [keys:/keys]
+  caddy:
+    image: docker.io/library/caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment: { AHA_DOMAIN: "${AHA_DOMAIN}" }
+    volumes: [./Caddyfile:/etc/caddy/Caddyfile:ro, caddy:/data]
+volumes:
+  keys: {}
+  caddy: {}
