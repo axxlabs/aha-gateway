@@ -3,7 +3,8 @@
 The relay between chat apps (WhatsApp, Telegram, and a chat simulator in staging) and aha computers.
 It carries each message to the computer that holds the address and forgets it: no database, no message logs.
 
-The full specification is `SPEC.md` in aha-root (§6 protocol, §7 gateway, §8 hosted gateway).
+The part that runs on your computer is [aha-local-llm](https://github.com/axxlabs/aha-local-llm).
+Website: https://axxlabs.ai/aha/
 
 ## Run it locally (staging build, with the simulator)
 
