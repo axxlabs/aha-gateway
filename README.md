@@ -1,42 +1,62 @@
 # aha-gateway
 
-The relay between chat apps (WhatsApp, Telegram, and a chat simulator in staging) and aha computers.
-It carries each message to the computer that holds the address and forgets it: no database, no message logs.
+The relay between Aha! apps and the aha computers they belong to (**Aha! Your private agent**). Messages are
+end-to-end encrypted between each device and its computer; the gateway only routes ciphertext, relays
+encrypted push notifications, and keeps nothing: no database, no message logs, no identifiers in its logs. It
+serves no web pages or scripts, so taking it over gives no way to change the app.
 
-The part that runs on your computer is [aha-local-llm](https://github.com/axxlabs/aha-local-llm).
-Website: https://axxlabs.ai/aha/
+The computer side is [aha-local-llm](https://github.com/axxlabs/aha-local-llm); the app is
+[aha-app](https://github.com/axxlabs/aha-app). Website: https://axxlabs.ai/aha/
 
-## Run it locally (staging build, with the simulator)
+## What it does
+
+- `/v1/tunnel`: computers connect out to it; both sides prove their keys (the computer pins the gateway's key).
+- `/v1/device`: apps connect with a binding certificate and a signature; or join a pairing with a rendezvous
+  code (the pairing itself is end-to-end and needs a secret the gateway never sees).
+- Signs binding certificates on a computer's request. They only route frames; they never make a computer
+  trust a device.
+- Relays Web Push payloads (already encrypted and authenticated by the computer) to the known push services,
+  signed with its VAPID key.
+- `/.well-known/aha-gateway.json` (public keys, version, source) and `/healthz`.
+
+## Run it locally (development)
 
 ```sh
 uv sync
-AHA_GW_SIGNING_KEY_FILE=./.dev/gateway.key uv run python -m aha_gateway
-# open http://127.0.0.1:8700/test
+scripts/dev.sh        # 127.0.0.1:8700 and a Unix socket for a computer on this machine
 ```
 
-The signing key is created on first start. Computers pin its public key (`/.well-known/aha-gateway.json`),
-so keep it: a new key means re-running `aha init` on every computer.
+The signing key and VAPID key are created on first start (mode 0600). Computers pin the signing key, so keep
+it: a new key means pairing every device and re-running `aha init` on every computer.
 
 ## Self-host
 
-See `deploy/compose.yaml` (gateway + Caddy for TLS). Production images are built without the simulator:
-`podman build -f deploy/Containerfile -t aha-gateway .`
+See `deploy/compose.yaml` (gateway + Caddy for TLS). Serve the app (aha-app's `dist/`) from a static host of
+your own, separate from the gateway, and list its origin in `AHA_GW_APP_ORIGINS`.
 
 ## Environment
 
 | Variable | Default | |
 |---|---|---|
 | `AHA_GW_SIGNING_KEY_FILE` | `/run/secrets/aha-gateway-key` | Ed25519 key, created if missing (mode 0600) |
+| `AHA_GW_VAPID_KEY_FILE` | `/run/secrets/aha-gateway-vapid.pem` | P-256 key for Web Push (VAPID), created if missing |
+| `AHA_GW_VAPID_SUBJECT` | `https://axxlabs.ai/aha/` | Contact URL sent to push services |
 | `AHA_GW_PUBLIC_URL` | `http://127.0.0.1:8700` | Advertised in `/.well-known/aha-gateway.json` |
+| `AHA_GW_APP_ORIGINS` | the official app and `localhost:5173` | Browser origins allowed to open `/v1/device` |
 | `AHA_GW_HOST` / `AHA_GW_PORT` | `127.0.0.1` / `8700` | Listen address |
-| `AHA_GW_BILLING` | `off` | `stripe` is milestone M3 |
+| `AHA_GW_UNIX_SOCKET` | unset | Also listen on this Unix socket (a computer on the same machine) |
+| `AHA_GW_BILLING` | `off` | `stripe` is a later milestone |
 | `AHA_GW_SOURCE_URL` | upstream repo | Where this gateway's source is, shown to its users (AGPL §13). Point it at your own source if you run a modified gateway |
-| `AHA_GW_OPEN_REGISTRATION` | `0` | `1`: a number nobody has paired is registered to the only connected computer on its first message (staging, or self-hosting with one computer; refused with billing) |
-| `AHA_GW_STAGING_ACCESS` | `local` | `local` (loopback only), `network` (LAN + Tailscale, staging on a home machine) or `proxy` (with `AHA_GW_TRUSTED_PROXY`) |
 
 ## Tests
 
-`uv run pytest` — real sockets: a gateway on a free port, a fake computer and the simulator as a browser.
+`uv run pytest`: real sockets (a gateway on a free port, a fake computer and fake devices), certificate and
+pairing rules, push allowlist, origin checks, fuzzed frames, and a test that relaying writes no file and logs
+no identifiers.
+
+## Security
+
+See `SECURITY.md` for how to report a vulnerability.
 
 ## Licence
 

@@ -27,7 +27,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["aha_gateway"]
-exclude = ["aha_gateway/staging"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
