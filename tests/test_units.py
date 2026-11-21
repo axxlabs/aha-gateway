@@ -139,3 +139,15 @@ def test_random_frames_never_crash_the_parsers():
         for adapter in (FROM_DEVICE, FROM_COMPUTER):
             with contextlib.suppress(ValidationError):
                 adapter.validate_json(text)
+
+
+def test_outgoing_request_urls_are_not_logged(tmp_path):
+    """Push endpoint URLs identify devices; httpx would log them at INFO (SPEC §6.7)."""
+    import logging
+
+    from aha_gateway.app import create_app
+    from aha_gateway.config import Settings
+
+    create_app(Settings(signing_key_file=tmp_path / "k", vapid_key_file=tmp_path / "v.pem", public_url="http://x"))
+    assert logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING
+    assert logging.getLogger("httpcore").getEffectiveLevel() >= logging.WARNING

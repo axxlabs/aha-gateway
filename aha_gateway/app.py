@@ -28,6 +28,9 @@ log = logging.getLogger("aha.gateway")
 
 
 def create_app(settings: Settings, billing: Billing | None = None) -> FastAPI:
+    # httpx logs every request URL at INFO, and Web Push endpoint URLs identify devices (SPEC §6.7).
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     key = load_or_create_key(settings.signing_key_file)
     vapid = Vapid.load_or_create(settings.vapid_key_file, settings.vapid_subject)
     hub = Hub()
