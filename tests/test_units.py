@@ -151,3 +151,17 @@ def test_outgoing_request_urls_are_not_logged(tmp_path):
     create_app(Settings(signing_key_file=tmp_path / "k", vapid_key_file=tmp_path / "v.pem", public_url="http://x"))
     assert logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING
     assert logging.getLogger("httpcore").getEffectiveLevel() >= logging.WARNING
+
+
+def test_every_image_is_pinned_by_digest():
+    """No moving tags (SPEC §9.2)."""
+    import re
+    from pathlib import Path
+
+    deploy = Path(__file__).resolve().parents[1] / "deploy"
+    refs = re.findall(r"^(?:FROM |COPY --from=)(\S+)", (deploy / "Containerfile").read_text(), re.M)
+    refs += re.findall(r"^\s+image: (\S+)", (deploy / "compose.yaml").read_text(), re.M)
+    refs = [r for r in refs if r != "build"]
+    assert len(refs) >= 4
+    for r in refs:
+        assert re.search(r"@sha256:[0-9a-f]{64}$", r), r

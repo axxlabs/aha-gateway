@@ -10,11 +10,13 @@ import httpx
 import pytest
 import websockets
 
+from aha_gateway.certs import device_message, gateway_proof_message, new_key, public_b64, sign, verify
 from aha_gateway.protocol import (
     E2E,
     CertIssued,
     CertRequest,
     ComputerStatus,
+    DevAuth,
     DevE2E,
     DeviceReady,
     DevPair,
@@ -22,6 +24,7 @@ from aha_gateway.protocol import (
     Pair,
     PairHello,
     PairStart,
+    Ping,
     Push,
     Revoke,
     b64,
@@ -30,6 +33,7 @@ from aha_gateway.protocol import (
 from .conftest import Computer, Device
 
 TAG = b64(b"\x07" * 16)
+NONCE = b64(b"\x09" * 32)
 BOX = b64(b"CANARY-BOX-" + b"x" * 64)
 
 
@@ -39,14 +43,16 @@ async def paired_device(gateway, computer: Computer) -> tuple[Device, object]:
     code = (await computer.recv()).code
     dev = Device(gateway)
     await dev.open()
-    await dev.send(PairHello(code=code))
+    await dev.send(PairHello(code=code, nonce=NONCE))
+    ready = await dev.recv()
+    assert isinstance(ready, DeviceReady) and verify(dev.hello.gateway, gateway_proof_message(NONCE), ready.sig)
     hello = await computer.recv()
     assert isinstance(hello, Pair) and hello.code == code and hello.body == {"t": "hello"}
     await computer.send(Pair(code=code, body={"t": "bundle", "ikc": "AAAA"}))
     assert (await dev.recv()) == DevPair(body={"t": "bundle", "ikc": "AAAA"})
     await dev.send(DevPair(body={"t": "finish", "mac": "BBBB"}))
     assert (await computer.recv()).body == {"t": "finish", "mac": "BBBB"}
-    await computer.send(CertRequest(id="r1", device=dev.dev, tag=TAG))
+    await computer.send(CertRequest(id="r1", device=dev.dev, tag=TAG, code=code))
     issued = await computer.recv()
     assert (
         isinstance(issued, CertIssued) and issued.cert.device == dev.dev and issued.cert.instance == computer.instance
@@ -211,3 +217,55 @@ async def test_a_device_must_authenticate_before_anything_else(gateway, computer
     await dev.open()
     await dev.send(DevE2E(box=BOX))  # no dev_auth first
     assert await dev.closed_with() == 4401
+
+
+async def test_the_gateway_proves_its_key_to_devices(gateway, computer):
+    """A device's nonce comes back signed with the pinned key (SPEC §6.3, §9.2)."""
+    await computer.connect()
+    dev, cert = await paired_device(gateway, computer)
+    computer2 = Computer(gateway)
+    computer2.key, computer2.instance, computer2.certs = computer.key, computer.instance, [cert]
+    await computer.close()
+    await computer2.connect()
+    again = Device(gateway)
+    again.key, again.dev = dev.key, dev.dev
+    hello = await again.open()
+    await again.send(DevAuth(cert=cert, sig=sign(again.key, device_message(hello.nonce, again.dev)), nonce=NONCE))
+    ready = await again.recv()
+    assert ready.online and verify(hello.gateway, gateway_proof_message(NONCE), ready.sig)
+    assert not verify(hello.gateway, gateway_proof_message(b64(b"\x01" * 32)), ready.sig)
+
+
+async def test_certificates_only_for_a_joined_code_or_a_renewal(gateway, computer):
+    await computer.connect()
+    stranger = new_key()
+    await computer.send(CertRequest(id="x1", device=public_b64(stranger), tag=TAG))
+    refused = await computer.recv()
+    assert refused.t == "notice" and refused.code == "cert_refused"
+    await computer.send(PairStart())
+    code = (await computer.recv()).code
+    await computer.send(CertRequest(id="x2", device=public_b64(stranger), tag=TAG, code=code))
+    assert (await computer.recv()).code == "cert_refused"  # nobody joined the code yet
+    dev, _ = await paired_device(gateway, computer)  # one certificate for its code...
+    await computer.send(CertRequest(id="x3", device=public_b64(stranger), tag=TAG, code=code))
+    assert (await computer.recv()).code == "cert_refused"  # ...an old code gives nothing
+    await computer.send(CertRequest(id="x4", device=dev.dev, tag=TAG))  # renewal of a routed device
+    renewed = await computer.recv()
+    assert isinstance(renewed, CertIssued) and renewed.cert.device == dev.dev
+
+
+async def test_unknown_frame_types_are_ignored_not_fatal(gateway, computer):
+    """Newer and older versions can talk to each other (SPEC §6.5)."""
+    await computer.connect()
+    await computer.ws.send('{"t": "from_the_future", "x": 1}')
+    await computer.send(Ping())
+    assert (await computer.recv()).t == "pong"
+    await computer.ws.send('{"t": "e2e", "dev": "not a key", "box": "AAAA"}')  # a known type, malformed: closes
+    with pytest.raises(websockets.ConnectionClosed):
+        await computer.recv()
+
+
+async def test_healthz_says_nothing_about_who_is_connected(gateway, computer):
+    await computer.connect()
+    async with httpx.AsyncClient() as c:
+        assert (await c.get(f"{gateway.url}/healthz")).json() == {"ok": True}

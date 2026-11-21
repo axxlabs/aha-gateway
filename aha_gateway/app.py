@@ -80,6 +80,6 @@ def create_app(settings: Settings, billing: Billing | None = None) -> FastAPI:
 
     @app.get("/healthz")
     def healthz() -> JSONResponse:
-        return JSONResponse({"ok": True, **hub.counts()})
+        return JSONResponse({"ok": True})  # how many are connected is not public (SPEC §7.1)
 
     return app

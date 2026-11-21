@@ -12,12 +12,13 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
-from .certs import cert_valid, device_message, public_b64, verify
+from .certs import cert_valid, device_message, gateway_proof_message, public_b64, sign, verify
 from .config import Settings
 from .hub import Hub
 from .protocol import (
     E2E,
     FROM_DEVICE,
+    GATEWAY_FEATURES,
     MAX_FRAME_BYTES,
     ComputerStatus,
     DevAuth,
@@ -53,7 +54,9 @@ async def serve_device(ws: WebSocket, hub: Hub, key: Ed25519PrivateKey, settings
     conn = WsConn(ws)
     gateway_public = public_b64(key)
     nonce = b64(os.urandom(32))
-    await conn.send_frame(Hello(gateway=gateway_public, nonce=nonce, vapid=vapid_public))
+    await conn.send_frame(
+        Hello(gateway=gateway_public, nonce=nonce, vapid=vapid_public, features=list(GATEWAY_FEATURES))
+    )
     try:
         raw = await asyncio.wait_for(ws.receive_text(), timeout=AUTH_TIMEOUT)
         first = FROM_DEVICE.validate_json(raw)
@@ -62,14 +65,21 @@ async def serve_device(ws: WebSocket, hub: Hub, key: Ed25519PrivateKey, settings
         return
     match first:
         case DevAuth():
-            await _authenticated(conn, hub, gateway_public, nonce, first)
+            await _authenticated(conn, hub, key, gateway_public, nonce, first)
         case PairHello():
-            await _pairing(conn, hub, client_ip, first.code)
+            await _pairing(conn, hub, key, client_ip, first)
         case _:
             await conn.close(4401)
 
 
-async def _authenticated(conn: WsConn, hub: Hub, gateway_public: str, nonce: str, auth: DevAuth) -> None:
+def _proof(key: Ed25519PrivateKey, device_nonce: str | None) -> str | None:
+    """The gateway proves it holds the key the device pinned (SPEC §6.3)."""
+    return sign(key, gateway_proof_message(device_nonce)) if device_nonce else None
+
+
+async def _authenticated(
+    conn: WsConn, hub: Hub, key: Ed25519PrivateKey, gateway_public: str, nonce: str, auth: DevAuth
+) -> None:
     dev = auth.cert.device
     if not cert_valid(auth.cert, gateway_public) or not verify(dev, device_message(nonce, dev), auth.sig):
         log.info("device rejected: bad authentication")
@@ -80,7 +90,7 @@ async def _authenticated(conn: WsConn, hub: Hub, gateway_public: str, nonce: str
     if online is None:  # the computer is connected and doesn't list this device: revoked
         await conn.close(4403)
         return
-    await conn.send_frame(DeviceReady(online=online))
+    await conn.send_frame(DeviceReady(online=online, sig=_proof(key, auth.nonce)))
     try:
         while True:
             try:
@@ -104,7 +114,7 @@ async def _authenticated(conn: WsConn, hub: Hub, gateway_public: str, nonce: str
                         await comp.conn.send_frame(E2E(dev=dev, box=frame.box))
                 case Ping():
                     await conn.send_frame(Pong())
-                case Pong():
+                case Pong() | None:  # None: a frame type this version doesn't know (SPEC §6.5)
                     pass
                 case _:
                     await conn.close(4400)
@@ -113,7 +123,8 @@ async def _authenticated(conn: WsConn, hub: Hub, gateway_public: str, nonce: str
         await hub.detach_device(conn, dev)
 
 
-async def _pairing(conn: WsConn, hub: Hub, client_ip: str, code: str) -> None:
+async def _pairing(conn: WsConn, hub: Hub, key: Ed25519PrivateKey, client_ip: str, hello: PairHello) -> None:
+    code = hello.code
     if not hub.pair_attempts.allow(("pair", client_ip)) or not hub.pair_attempts_global.allow("pair"):
         await conn.send_frame(Notice(code="pair_rate_limited"))
         await conn.close(4429)
@@ -124,6 +135,8 @@ async def _pairing(conn: WsConn, hub: Hub, client_ip: str, code: str) -> None:
         await conn.send_frame(Notice(code="pair_unknown"))
         await conn.close(4404)
         return
+    if hello.nonce:
+        await conn.send_frame(DeviceReady(online=True, sig=_proof(key, hello.nonce)))
     await comp.conn.send_frame(Pair(code=code, body={"t": "hello"}))
     try:
         while True:
@@ -148,6 +161,8 @@ async def _pairing(conn: WsConn, hub: Hub, client_ip: str, code: str) -> None:
                     await comp.conn.send_frame(Pair(code=code, body=frame.body))
                 case Ping():
                     await conn.send_frame(Pong())
+                case None:
+                    pass
                 case _:
                     await conn.close(4400)
                     return

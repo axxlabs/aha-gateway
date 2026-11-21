@@ -23,7 +23,7 @@ services:
       AHA_GW_GITHUB_TOKEN_FILE: /secrets/github-token
     volumes: [keys:/keys, ./secrets:/secrets:ro]
   caddy:
-    image: docker.io/library/caddy:2
+    image: docker.io/library/caddy@sha256:4851e54a46b206517c574821bb5cc67f170d2156041e9fbc4c9193b45e84a75b  # caddy:2, pinned (SPEC §9.2)
     restart: unless-stopped
     ports: ["80:80", "443:443", "443:443/udp"]
     environment: { AHA_SITES: "${AHA_SITES:-${AHA_DOMAIN}}" }

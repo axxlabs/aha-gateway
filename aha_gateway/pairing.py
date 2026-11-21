@@ -24,6 +24,7 @@ class Pending:
     instance: str
     expires: float
     device: Any = None  # the pairing device's connection, once it has joined
+    cert_issued: bool = False
     created: float = field(default_factory=time.monotonic)
 
 
@@ -61,6 +62,17 @@ class PairingCodes:
         if pending is None or pending.instance != instance or pending.expires <= time.monotonic():
             return None
         return pending.device
+
+    def claim_cert(self, code: str, instance: str, now: float | None = None) -> bool:
+        """One certificate per pairing: only for this computer's live code, after a device joined (SPEC §6.4)."""
+        now = time.monotonic() if now is None else now
+        pending = self._codes.get(code)
+        if pending is None or pending.instance != instance or pending.expires <= now:
+            return False
+        if pending.device is None or pending.cert_issued:
+            return False
+        pending.cert_issued = True
+        return True
 
     def drop(self, code: str) -> None:
         self._codes.pop(code, None)

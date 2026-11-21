@@ -21,6 +21,7 @@ from .hub import Hub
 from .protocol import (
     E2E,
     FROM_COMPUTER,
+    GATEWAY_FEATURES,
     MAX_FRAME_BYTES,
     CertIssued,
     CertRequest,
@@ -77,14 +78,14 @@ async def serve_tunnel(
     conn = WsConn(ws)
     gateway_public = public_b64(key)
     nonce = b64(os.urandom(32))
-    await conn.send_frame(Hello(gateway=gateway_public, nonce=nonce))
+    await conn.send_frame(Hello(gateway=gateway_public, nonce=nonce, features=list(GATEWAY_FEATURES)))
     try:
         raw = await asyncio.wait_for(ws.receive_text(), timeout=AUTH_TIMEOUT)
         auth = FROM_COMPUTER.validate_json(raw)
     except (TimeoutError, ValidationError, WebSocketDisconnect, RuntimeError):
         await conn.close(4401)
         return
-    if auth.t != "auth" or not verify(auth.instance, handshake_message(nonce, auth.instance), auth.sig):
+    if auth is None or auth.t != "auth" or not verify(auth.instance, handshake_message(nonce, auth.instance), auth.sig):
         log.info("tunnel rejected: bad authentication")
         await conn.close(4401)
         return
@@ -162,6 +163,12 @@ async def _frames(
                 if not hub.cert_requests.allow(instance):
                     await conn.send_frame(Notice(code="cert_rate_limited", detail=frame.id))
                     continue
+                # Only what there's a reason to sign: a device that joined this computer's live code (once), or
+                # a renewal of a device already routed to it (SPEC §6.4).
+                renewal = frame.device in comp.devices
+                if not renewal and not (frame.code and hub.pairing.claim_cert(frame.code, instance)):
+                    await conn.send_frame(Notice(code="cert_refused", detail=frame.id))
+                    continue
                 cert = issue_cert(key, frame.device, instance, frame.tag)
                 comp.devices.add(frame.device)
                 await conn.send_frame(CertIssued(id=frame.id, cert=cert))
@@ -185,7 +192,7 @@ async def _frames(
                     task.add_done_callback(pending.discard)
             case Ping():
                 await conn.send_frame(Pong())
-            case Pong():
+            case Pong() | None:  # None: a frame type this version doesn't know (SPEC §6.5)
                 pass
             case _:
                 await conn.close(4400)
