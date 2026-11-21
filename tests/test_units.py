@@ -3,6 +3,7 @@
 """Certificates, rendezvous codes, rate limits, push rules and frame strictness (SPEC §6, §7)."""
 
 import base64
+import contextlib
 import json
 from pathlib import Path
 
@@ -115,3 +116,26 @@ def test_protocol_and_certs_are_shared_with_aha_local_llm():
         pytest.skip("aha-local-llm not checked out next to aha-gateway")
     for name in ("protocol.py", "certs.py"):
         assert (ROOT / "aha_gateway" / name).read_text() == (other / name).read_text(), name
+
+
+def test_random_frames_never_crash_the_parsers():
+    import os
+    import random
+
+    rng = random.Random(7)
+    seeds = [
+        '{"t":"dev_auth","cert":{"v":2},"sig":"AAAA"}',
+        '{"t":"e2e","box":"AAAA"}',
+        '{"t":"pair_hello","code":"ABC-DEF"}',
+        '{"t":"push","endpoint":"https://fcm.googleapis.com/x","body":"AAAA"}',
+        '{"t":"cert_request","id":"1","device":"' + "A" * 43 + '=","tag":"' + "A" * 22 + '=="}',
+    ]
+    for _ in range(500):
+        raw = bytearray(rng.choice(seeds).encode())
+        for _ in range(rng.randint(1, 6)):
+            i = rng.randrange(len(raw))
+            raw[i : i + rng.randint(0, 5)] = os.urandom(rng.randint(0, 5))
+        text = raw.decode("utf-8", "replace")
+        for adapter in (FROM_DEVICE, FROM_COMPUTER):
+            with contextlib.suppress(ValidationError):
+                adapter.validate_json(text)

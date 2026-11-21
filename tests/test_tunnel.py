@@ -203,3 +203,11 @@ async def test_nothing_is_written_and_nothing_identifying_is_logged(gateway, com
     assert "connected" in logged
     for secret in ("CANARY", phone.dev, TAG, cert.sig, computer.instance):
         assert secret not in logged
+
+
+async def test_a_device_must_authenticate_before_anything_else(gateway, computer):
+    await computer.connect()
+    dev = Device(gateway)
+    await dev.open()
+    await dev.send(DevE2E(box=BOX))  # no dev_auth first
+    assert await dev.closed_with() == 4401
