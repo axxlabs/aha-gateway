@@ -22,6 +22,9 @@ class Settings:
     source_url: str = "https://github.com/axxlabs/aha-gateway"
     # Browser origins allowed to open /v1/device (the app's own origin(s)); non-browser clients send none.
     app_origins: tuple[str, ...] = tuple(DEFAULT_ORIGINS.split(","))
+    # Problem reports (SPEC §7.7): a private GitHub repository and a token file; without both, reports are off.
+    reports_repo: str = ""
+    github_token_file: Path | None = None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -39,4 +42,6 @@ class Settings:
             billing=billing,
             source_url=os.environ.get("AHA_GW_SOURCE_URL", "https://github.com/axxlabs/aha-gateway"),
             app_origins=origins,
+            reports_repo=os.environ.get("AHA_GW_REPORTS_REPO", ""),
+            github_token_file=Path(t) if (t := os.environ.get("AHA_GW_GITHUB_TOKEN_FILE")) else None,
         )

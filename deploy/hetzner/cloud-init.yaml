@@ -1,0 +1,43 @@
+#cloud-config
+# The hosted Aha! gateway on Hetzner Cloud (SPEC §7.2). Used by deploy/hetzner/create.sh; safe to read, holds
+# no secrets. Ubuntu 24.04: an admin user with the operator's SSH key, no root or password login, automatic
+# security updates, Docker, and the gateway from its public repository.
+users:
+  - name: aha
+    groups: [sudo, docker]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+    ssh_authorized_keys: ["@SSH_KEY@"]
+disable_root: true
+ssh_pwauth: false
+package_update: true
+package_upgrade: true
+packages: [docker.io, docker-compose-v2, git, unattended-upgrades, fail2ban]
+write_files:
+  - path: /etc/ssh/sshd_config.d/10-aha.conf
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+  - path: /etc/docker/daemon.json
+    content: |
+      { "log-driver": "json-file", "log-opts": { "max-size": "10m", "max-file": "3" }, "live-restore": true }
+runcmd:
+  - systemctl restart ssh
+  - systemctl enable --now docker fail2ban
+  - git clone --depth 1 https://github.com/axxlabs/aha-gateway /opt/aha-gateway
+  - chown -R aha:aha /opt/aha-gateway
+  - install -d -m 0750 -o 10001 -g aha /opt/aha-gateway/deploy/secrets
+  - |
+    cat > /opt/aha-gateway/deploy/.env <<ENV
+    AHA_DOMAIN=@DOMAIN@
+    AHA_SITES=@SITES@
+    AHA_APP_ORIGIN=@APP_ORIGINS@
+    AHA_REPORTS_REPO=@REPORTS_REPO@
+    ENV
+  - cd /opt/aha-gateway/deploy && docker compose up -d --build

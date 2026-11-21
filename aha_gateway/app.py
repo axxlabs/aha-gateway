@@ -5,6 +5,7 @@ public key information and a health check (§7.1, §9.1)."""
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 
@@ -20,6 +21,7 @@ from .device import serve_device
 from .hub import Hub
 from .protocol import PROTOCOL_VERSION
 from .push import Vapid
+from .reports import Reports
 from .tunnel import serve_tunnel
 
 log = logging.getLogger("aha.gateway")
@@ -31,20 +33,26 @@ def create_app(settings: Settings, billing: Billing | None = None) -> FastAPI:
     hub = Hub()
     billing = billing or make_billing(settings.billing)
     http = httpx.AsyncClient(timeout=10, follow_redirects=False, headers={"User-Agent": "aha-gateway"})
+    reports = Reports.from_settings(settings.reports_repo, settings.github_token_file, http)
+    if reports.issues is None:
+        log.info("problem reports are off (no AHA_GW_REPORTS_REPO / AHA_GW_GITHUB_TOKEN_FILE)")
 
     @contextlib.asynccontextmanager
     async def lifespan(_app: FastAPI):
+        sweeper = asyncio.create_task(reports.sweep_forever())
         yield
+        sweeper.cancel()
         await http.aclose()
 
     app = FastAPI(
         title="aha gateway", version=__version__, docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan
     )
     app.state.hub = hub
+    app.state.reports = reports
 
     @app.websocket("/v1/tunnel")
     async def tunnel(ws: WebSocket) -> None:
-        await serve_tunnel(ws, hub, key, billing, vapid, http)
+        await serve_tunnel(ws, hub, key, billing, vapid, http, reports)
 
     @app.websocket("/v1/device")
     async def device(ws: WebSocket) -> None:

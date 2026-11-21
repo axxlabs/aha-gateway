@@ -36,9 +36,12 @@ from .protocol import (
     Pong,
     Push,
     Ready,
+    Report,
+    ReportResult,
     Revoke,
     b64,
 )
+from .reports import Reports
 
 log = logging.getLogger("aha.gateway")
 
@@ -62,7 +65,13 @@ class WsConn:
 
 
 async def serve_tunnel(
-    ws: WebSocket, hub: Hub, key: Ed25519PrivateKey, billing: Billing, vapid: push_relay.Vapid, http: httpx.AsyncClient
+    ws: WebSocket,
+    hub: Hub,
+    key: Ed25519PrivateKey,
+    billing: Billing,
+    vapid: push_relay.Vapid,
+    http: httpx.AsyncClient,
+    reports: Reports | None = None,
 ) -> None:
     await ws.accept()
     conn = WsConn(ws)
@@ -90,14 +99,20 @@ async def serve_tunnel(
     await hub.attach_computer(conn, instance, set(routes))  # after Ready: it may send device statuses
     log.info("computer connected (%d devices, %d rejected)", len(routes), len(rejected))
     try:
-        await _frames(conn, hub, key, instance, vapid, http)
+        await _frames(conn, hub, key, instance, vapid, http, reports or Reports(None))
     finally:
         await hub.detach_computer(conn, instance)
         log.info("computer disconnected")
 
 
 async def _frames(
-    conn: WsConn, hub: Hub, key: Ed25519PrivateKey, instance: str, vapid: push_relay.Vapid, http: httpx.AsyncClient
+    conn: WsConn,
+    hub: Hub,
+    key: Ed25519PrivateKey,
+    instance: str,
+    vapid: push_relay.Vapid,
+    http: httpx.AsyncClient,
+    reports: Reports,
 ) -> None:
     pending: set[asyncio.Task] = set()
     while True:
@@ -159,6 +174,15 @@ async def _frames(
                 task.add_done_callback(pending.discard)
             case Revoke():
                 await hub.revoke(frame.dev, instance)
+            case Report():
+                if reports.issues is None:
+                    await conn.send_frame(ReportResult(id=frame.id, ok=False, code="reports_off"))
+                elif not hub.reports.allow(instance) or not hub.reports_global.allow("all"):
+                    await conn.send_frame(ReportResult(id=frame.id, ok=False, code="rate_limited"))
+                else:
+                    task = asyncio.create_task(_report(conn, reports, frame))
+                    pending.add(task)
+                    task.add_done_callback(pending.discard)
             case Ping():
                 await conn.send_frame(Pong())
             case Pong():
@@ -166,3 +190,10 @@ async def _frames(
             case _:
                 await conn.close(4400)
                 return
+
+
+async def _report(conn: WsConn, reports: Reports, frame: Report) -> None:
+    code = await reports.send(frame)
+    with contextlib.suppress(Exception):
+        await conn.send_frame(ReportResult(id=frame.id, ok=not code, code=code))
+    log.info("problem report %s", "passed on" if not code else f"not sent ({code})")

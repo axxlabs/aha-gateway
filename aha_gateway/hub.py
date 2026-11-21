@@ -64,6 +64,8 @@ class Hub:
         self.cert_requests = RateLimiter(rate=30 / 60, burst=30)  # per computer
         self.pushes = RateLimiter(rate=2, burst=60)  # per computer
         self.conns_per_ip = RateLimiter(rate=1, burst=30)
+        self.reports = RateLimiter(rate=5 / 3600, burst=5)  # per computer (SPEC §7.7)
+        self.reports_global = RateLimiter(rate=100 / 86400, burst=100)
 
     # -- computers
 

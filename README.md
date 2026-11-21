@@ -17,6 +17,7 @@ The computer side is [aha-local-llm](https://github.com/axxlabs/aha-local-llm); 
   trust a device.
 - Relays Web Push payloads (already encrypted and authenticated by the computer) to the known push services,
   signed with its VAPID key.
+- Passes on problem reports the person chose to send to a private issue tracker, and keeps nothing (below).
 - `/.well-known/aha-gateway.json` (public keys, version, source) and `/healthz`.
 
 ## Run it locally (development)
@@ -34,6 +35,18 @@ it: a new key means pairing every device and re-running `aha init` on every comp
 See `deploy/compose.yaml` (gateway + Caddy for TLS). Serve the app (aha-app's `dist/`) from a static host of
 your own, separate from the gateway, and list its origin in `AHA_GW_APP_ORIGINS`.
 
+`deploy/hetzner/create.sh` sets up a server on Hetzner Cloud the way the hosted gateway runs: a cloud firewall
+(SSH, 80, 443 only), an admin user with your SSH key, no root or password login, automatic security updates,
+then the same compose file. Until your DNS name resolves, the gateway is also served as `<ip>.sslip.io`.
+
+### Problem reports
+
+Computers can pass on a problem report the person previewed and chose to send. The gateway opens it as an issue
+(label `report`) in a private GitHub repository, keeps nothing itself, and once an hour deletes closed report
+issues and open ones older than 90 days. Set `AHA_GW_REPORTS_REPO` and put a token in the file named by
+`AHA_GW_GITHUB_TOKEN_FILE` (issues read/write on that repository; its account must be an admin of it to delete
+issues). Without them, reports are off and the app says so.
+
 ## Environment
 
 | Variable | Default | |
@@ -46,6 +59,8 @@ your own, separate from the gateway, and list its origin in `AHA_GW_APP_ORIGINS`
 | `AHA_GW_HOST` / `AHA_GW_PORT` | `127.0.0.1` / `8700` | Listen address |
 | `AHA_GW_UNIX_SOCKET` | unset | Also listen on this Unix socket (a computer on the same machine) |
 | `AHA_GW_BILLING` | `off` | `stripe` is a later milestone |
+| `AHA_GW_REPORTS_REPO` | unset | `owner/repo` of the private repository problem reports go to |
+| `AHA_GW_GITHUB_TOKEN_FILE` | unset | File holding the GitHub token for that repository |
 | `AHA_GW_SOURCE_URL` | upstream repo | Where this gateway's source is, shown to its users (AGPL §13). Point it at your own source if you run a modified gateway |
 
 ## Tests

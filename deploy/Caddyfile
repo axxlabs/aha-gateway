@@ -1,4 +1,5 @@
 # TLS in front of the gateway. No access log: URLs and client addresses would identify people (SPEC §6.5).
-{$AHA_DOMAIN} {
+# AHA_SITES is one or more names, comma-separated (e.g. the final name plus a temporary <ip>.sslip.io one).
+{$AHA_SITES} {
 	reverse_proxy gateway:8700
 }
