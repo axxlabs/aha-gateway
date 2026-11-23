@@ -40,4 +40,4 @@ runcmd:
     AHA_APP_ORIGIN=@APP_ORIGINS@
     AHA_REPORTS_REPO=@REPORTS_REPO@
     ENV
-  - cd /opt/aha-gateway/deploy && docker compose up -d --build
+  - cd /opt/aha-gateway/deploy && AHA_BUILD=$(git rev-parse --short HEAD) docker compose up -d --build

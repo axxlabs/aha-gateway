@@ -5,11 +5,11 @@
 #    Optional: AHA_SITES to serve more names (comma-separated; defaults to AHA_DOMAIN), and for problem
 #    reports (SPEC §7.7) AHA_REPORTS_REPO=owner/repo plus a GitHub token in secrets/github-token
 #    (readable by uid 10001; issues read/write on that private repository, and its account an admin of it).
-# 3. docker compose up -d --build   (or podman-compose)
+# 3. AHA_BUILD=$(git rev-parse --short HEAD) docker compose up -d --build   (or podman-compose)
 # The gateway's signing key is created on first start in the "keys" volume. Back it up: computers pin it.
 services:
   gateway:
-    build: { context: .., dockerfile: deploy/Containerfile }
+    build: { context: .., dockerfile: deploy/Containerfile, args: { AHA_BUILD: "${AHA_BUILD:-unknown}" } }
     restart: unless-stopped
     read_only: true
     cap_drop: [ALL]
