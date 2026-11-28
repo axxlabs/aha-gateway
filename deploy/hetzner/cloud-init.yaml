@@ -1,5 +1,5 @@
 #cloud-config
-# The hosted Aha! gateway on Hetzner Cloud (SPEC §7.2). Used by deploy/hetzner/create.sh; safe to read, holds
+# The hosted SHA gateway on Hetzner Cloud (SPEC §7.2). Used by deploy/hetzner/create.sh; safe to read, holds
 # no secrets. Ubuntu 24.04: an admin user with the operator's SSH key, no root or password login, automatic
 # security updates, Docker, and the gateway from its public repository.
 users:

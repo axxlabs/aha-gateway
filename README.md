@@ -1,6 +1,6 @@
 # aha-gateway
 
-The relay between Aha! apps and the aha computers they belong to (**aha! A Truly Private Personal Assistant**). Messages are
+The relay between SHA apps and the aha computers they belong to (**SHA, a self-hosted assistant**). Messages are
 end-to-end encrypted between each device and its computer; the gateway only routes ciphertext, relays
 encrypted push notifications, and keeps nothing: no database, no message logs, no identifiers in its logs. It
 serves no web pages or scripts, so taking it over gives no way to change the app.

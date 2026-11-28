@@ -1,7 +1,7 @@
 [project]
 name = "aha-gateway"
 version = "0.0.0"  # hot-staging: the version is the commit (SPEC §10.2)
-description = "Aha! gateway: relays end-to-end encrypted messages between devices and aha computers, and stores nothing"
+description = "SHA gateway: relays end-to-end encrypted messages between devices and aha computers, and stores nothing"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.12"
 dependencies = [
