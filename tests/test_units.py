@@ -79,7 +79,7 @@ def test_push_endpoints_are_only_known_services_over_https():
 
 
 def test_vapid_header_verifies(tmp_path):
-    vapid = Vapid.load_or_create(tmp_path / "v.pem", "https://axxlabs.ai/aha/")
+    vapid = Vapid.load_or_create(tmp_path / "v.pem", "https://axxlabs.ai/sha/")
     auth = vapid.authorization("https://fcm.googleapis.com/fcm/send/x", now=1000)
     token = auth.split("t=")[1].split(",")[0]
     header, claims, sig = token.split(".")

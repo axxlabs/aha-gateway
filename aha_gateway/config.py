@@ -16,7 +16,7 @@ class Settings:
     signing_key_file: Path
     public_url: str
     vapid_key_file: Path = Path("/run/secrets/aha-gateway-vapid.pem")
-    vapid_subject: str = "https://axxlabs.ai/aha/"
+    vapid_subject: str = "https://axxlabs.ai/sha/"
     billing: str = "off"  # off | stripe (SPEC §8)
     # Where this gateway's source is (AGPL §13; SPEC §10.1).
     source_url: str = "https://github.com/axxlabs/aha-gateway"
@@ -38,7 +38,7 @@ class Settings:
             signing_key_file=Path(os.environ.get("AHA_GW_SIGNING_KEY_FILE", "/run/secrets/aha-gateway-key")),
             public_url=os.environ.get("AHA_GW_PUBLIC_URL", "http://127.0.0.1:8700"),
             vapid_key_file=Path(os.environ.get("AHA_GW_VAPID_KEY_FILE", "/run/secrets/aha-gateway-vapid.pem")),
-            vapid_subject=os.environ.get("AHA_GW_VAPID_SUBJECT", "https://axxlabs.ai/aha/"),
+            vapid_subject=os.environ.get("AHA_GW_VAPID_SUBJECT", "https://axxlabs.ai/sha/"),
             billing=billing,
             source_url=os.environ.get("AHA_GW_SOURCE_URL", "https://github.com/axxlabs/aha-gateway"),
             app_origins=origins,
